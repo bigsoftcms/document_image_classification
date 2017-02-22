@@ -29,6 +29,18 @@ if not 'nlp' in locals():
     print 'Completed Loading English Module.'
 
 
+def remove_filename_spaces(directory):
+    '''
+    INPUT: main directory where data resides
+    OUTPUT: None
+    TASK: removes white space from file names since shell to open files in other functions don't recognize white space.
+    '''
+    for path, _, files in os.walk(directory):
+        for f in files:
+            if ' ' in f:
+                os.rename(os.path.join(path, f), os.path.join(path, f.replace(' ', '')))
+
+
 def doc_cnts_paths(data_path):
     '''
     INPUT: path to data repository
@@ -226,6 +238,7 @@ def doc_sim(txt_paths, path, tfidf_matrix):
 
 if __name__ == '__main__':
     data_path = '/Users/jpc/Documents/data_science_inmersive/document_image_classification/data/Wells'
+
     # allows display of gensim LDA results as the model is being fitted
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
 
@@ -253,9 +266,9 @@ if __name__ == '__main__':
     lda.show_topics(-1, formatted=False)
 
 
-    # for path in files_by_topic[34][0][:30]:
-    #     !open {path}
-    #
+    for path in files_by_topic[34][0][:30]:
+        !open {path}
+
     #
 
 
