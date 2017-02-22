@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from collections import Counter, defaultdict
-from string import punctuation
+from string import punctuation, ascii_lowercase, digits
 import operator
 from itertools import chain
 import logging
@@ -124,7 +124,11 @@ def lemmatize_corpus(txt_paths):
         with open(path) as file:
             raw_corpus.append(file.read())
 
-    lemmatized_corpus = [lemmatize_string(doc, STOPWORDS) for doc in raw_corpus]
+    stop_specific = ['wattenberg', 'yes', 'na', '00', '000', '01', '011', '200', '320', '4n', 'n2', 'acre', "'s", 'pm', '--', 'number', '1000', '100']
+
+    stoplist = STOPWORDS.union([c for c in ascii_lowercase]).union([p for p in punctuation]).union([d for d in digits]).union(stop_specific)
+
+    lemmatized_corpus = [lemmatize_string(doc, stoplist) for doc in raw_corpus]
 
     return lemmatized_corpus
 
@@ -148,7 +152,7 @@ def parallel_corpus_lemmatization(txt_paths):
 
 def bow_and_dict(lemmatized_corpus, no_below, no_above=0.5):
     '''
-    INPUT: lemmatized_corpus. no_below helps with filtering out tokens that appear in less than the 'no_below' number of documents specified. no_above is a fraction of the total corpus and it helps with filtering out tokens that appear in more than the 'no_above' fraction of documents specified. Basically, helps to filter out ubiquitous words that were not caught by stop_words.
+    INPUT: lemmatized_corpus. 'no_below' helps with filtering out tokens that appear in less than the 'no_below' number of documents specified. 'no_above' is a fraction of the total corpus and it helps with filtering out tokens that appear in more than the 'no_above' fraction of documents specified. Basically, helps to filter out ubiquitous words that were not caught by stop_words.
     OUTPUT: (1) dictionary, which is a collection of all the unique tokens in the corpus. (2) Bag of words corpus, which represents each document in the corpus as a list of tuples with two elements - token id (referenced to the dictionary) and token frequency.
     TASK: tokenizes documents, creates dictionary from tokens, reduces size of dictionary based on 'no_below' and 'no_above' parameters.
     PACKAGE USED: gensim
@@ -163,21 +167,27 @@ def bow_and_dict(lemmatized_corpus, no_below, no_above=0.5):
     return dictionary, bow_corpus
 
 
-def inspect_classification(bow_corpus, model, topic):
+def inspect_classification(bow_corpus, model):
     '''
-    INPUT: bow_corpus, model (trained), topic number (number of topics is defined when training the model and passed as an argument).
+    INPUT: bow_corpus, model (trained).
     OUTPUT: list of .tif paths to the documents grouped under 'topic' by the model
     TASK: passing a document from the corpus into the model returns a list of the top topics with their corresponding probabilities. Sort and select topic with highest probability for that document. Aggregate results in a defaultdict with key='topic' and value='document number that references .txt/.tif path'.
+    ISSUES: Trying to group documents into specific topics and order by decreasing amount of documents per topic; instead of using sparse code to populate insp_cnt list in name/main block.
     '''
+    # top_topics_lst is a defaultdict of the form key=topic, value=documents whose most likely topic is that key
     top_topics_lst = defaultdict(list)
     for file_num, doc in enumerate(bow_corpus):
         top_topics_lst[sorted(model[doc], key=lambda x: x[1], reverse=True)[0][0]].append(file_num)
 
+    # files_by_topic is a defaultdict of the form key=topic, value=file paths to images corresponding to the key
+    files_by_topic = defaultdict(list)
     for topic in range(model.num_topics):
-        # indexes all document paths under a chosen topic using document number in the bow_corpus as reference
-        inspection_lst = [path[:-3]+'tif' for path in np.array(txt_paths)[np.array(top_topics_lst[topic])]]
+        try:
+            files_by_topic[topic].append([path[:-3]+'tif' for path in np.array(txt_paths)[np.array(top_topics_lst[topic])]])
+        except:
+            pass
 
-    return inspection_lst
+    return top_topics_lst, files_by_topic
 
 
 def tfidf_(txt_paths):
@@ -215,46 +225,44 @@ def doc_sim(txt_paths, path, tfidf_matrix):
 
 
 if __name__ == '__main__':
-    data_path = '/Users/jpc/Documents/data_science_inmersive/project/data/Wells'
+    data_path = '/Users/jpc/Documents/data_science_inmersive/document_image_classification/data/Wells'
     # allows display of gensim LDA results as the model is being fitted
-    logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO
+    logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
 
     # store counts and paths for files of interest
     tif_cnt, xml_cnt, txt_cnt, misc_cnt, tif_paths, xml_paths, txt_paths, misc_paths = doc_cnts_paths(data_path)
 
     # lemmatized_corpus = lemmatize_corpus(txt_paths)
-    lemmatized_corpus = parallel_corpus_lemmatization(txt_files)
+    lemmatized_corpus = parallel_corpus_lemmatization(txt_paths)
 
     # # 'no_below' changes the size of the dictionary
     # # adjust for different classification results
-    dictionary, bow_corpus = bow_and_dict(lemmatized_corpus, 50)
+    dictionary, bow_corpus = bow_and_dict(lemmatized_corpus, no_below=75, no_above=0.9)
 
     # just tried 40 passes. waiting to review results
-    lda = models.LdaMulticore(bow_corpus, id2word=dictionary, num_topics=35, passes=40, chunksize=500, random_state=1, workers=4)
+    lda = models.LdaMulticore(bow_corpus, id2word=dictionary, num_topics=31, passes=40, chunksize=500, random_state=1, workers=4)
+
+    corpora.MmCorpus.serialize('src/lda_mod/well_docs.mm', bow_corpus)
+    dictionary.save('src/lda_mod/well_docs.dict')
+    lda.save('src/lda_mod/well_docs.model')
+
+    top_topics_lst, files_by_topic = inspect_classification(bow_corpus, lda)
+
+    sorted(top_topics_lst.iteritems(),key=lambda (k,v): len(v),reverse=True)
+
+    lda.show_topics(-1, formatted=False)
 
 
-    # inspect quality of classification
-    # idea: could apply additional classification within each topic picked by gensim LDA
-    # parallelize this task
-
-    insp_cnt = []
-    for topic in range(lda.num_topics):
-        try:
-            insp_cnt.append((inspect_classification(bow_corpus, lda, topic), len(inspect_classification(bow_corpus, lda, topic))))
-        except:
-            pass
-
-    insp_lst = sorted(insp_cnt, key=lambda x: x[1], reverse=True)[15][0]
-
-    for path in insp_lst[:30]:
-        !open {path}
-
-
+    # for path in files_by_topic[34][0][:30]:
+    #     !open {path}
+    #
+    #
 
 
 
 
-    # texts = [[word for word in document.replace('\n', ' ').lower().split() if word not in stoplist] for document in raw_corpus]
+
+
 
     # frequency = defaultdict(int)
     # for doc in lemmatized_corpus:
@@ -263,12 +271,6 @@ if __name__ == '__main__':
     #
     # processed_corpus = [[token for token in text if frequency[token] > 1] for text in texts]
     #
-    #
-    # dictionary = corpora.Dictionary(processed_corpus)
-    #
-    # bow_corpus = [dictionary.doc2bow(text) for text in processed_corpus]
-
-    # lda = models.LdaModel(bow_corpus, id2word=dictionary, num_topics=50)
 
 
 
