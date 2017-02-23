@@ -5,6 +5,7 @@ from string import punctuation, ascii_lowercase, digits
 import operator
 from itertools import chain
 import logging
+import matplotlib.pyplot as plt
 
 import subprocess
 import multiprocessing as mp
@@ -16,7 +17,11 @@ import spacy
 from PIL import Image, ImageSequence
 
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics.pairwise import cosine_similarity, pairwise_distances_argmin
+from sklearn.decomposition import TruncatedSVD
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import Normalizer
+from sklearn.cluster import KMeans, MiniBatchKMeans
 
 from gensim import corpora, models, similarities
 from gensim.parsing.preprocessing import STOPWORDS
@@ -202,17 +207,14 @@ def inspect_classification(bow_corpus, model):
     return top_topics_lst, files_by_topic
 
 
-def tfidf_(txt_paths):
+def tfidf_vect(lemm_corpus):
     '''
     INPUT: absolute paths to .txt documents
     OUTPUT: tfidf matrix and vectorizer
     '''
-    documents = []
-    for path in txt_paths:
-        documents.append(file.read(open(path)))
-    tfidf_vectorizer = TfidfVectorizer(stop_words='english')
-    tfidf_matrix = tfidf_vectorizer.fit_transform(documents)
-    return tfidf_matrix, tfidf_vectorizer
+    vectorizer = TfidfVectorizer(min_df=1)
+    vectorizer.fit_transform(lemm_corpus)
+    return vectorizer
 
 
 def doc_sim(txt_paths, path, tfidf_matrix):
@@ -270,9 +272,52 @@ if __name__ == '__main__':
         !open {path}
 
 
+    # Kmeans approach
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
+    vectorizer = TfidfVectorizer(max_df=.5)
+    X = vectorizer.fit_transform(lemmatized_corpus)
+    svd = TruncatedSVD(n_components=100)
+    normalizer = Normalizer(copy=False)
+    lsa = make_pipeline(svd, normalizer)
+    X = lsa.fit_transform(X)
 
+    km = MiniBatchKMeans(n_clusters=30, init='k-means++', n_init=1, init_size=500, batch_size=100, random_state=1)
+    km.fit(X)
 
+    original_space_centroids = svd.inverse_transform(km.cluster_centers_)
+    order_centroids = original_space_centroids.argsort()[:, ::-1]
+
+    terms = vectorizer.get_feature_names()
+    for i in range(30):
+        print 'Cluster {}:'.format(i)
+        for ind in order_centroids[i, :10]:
+            print terms[ind]
+        print
+
+    # Adjust code!!
+    fig = plt.figure(figsize=(8, 3))
+    # fig.subplots_adjust(left=0.02, right=0.98, bottom=0.05, top=0.9)
+    colors = ['#4EACC5', '#FF9C34', '#4E9A06']
+
+    # We want to have the same colors for the same cluster from the
+    # MiniBatchKMeans and the KMeans algorithm. Let's pair the cluster centers per
+    # closest one.
+    mbk_means_cluster_centers = np.sort(km.cluster_centers_, axis=0)
+    mbk_means_labels = pairwise_distances_argmin(X, mbk_means_cluster_centers)
+
+    # MiniBatchKMeans
+    # Adjust code!!
+    ax = fig.add_subplot(1, 3, 1)
+    for k, col in zip(range(30), colors):
+        my_members = mbk_means_labels == k
+        cluster_center = mbk_means_cluster_centers[k]
+        ax.plot(X[my_members, 0], X[my_members, 1], 'w',
+                markerfacecolor=col, marker='.')
+        ax.plot(cluster_center[0], cluster_center[1], 'o', markerfacecolor=col, markeredgecolor='k', markersize=6)
+    ax.set_title('KMeans')
+    ax.set_xticks(())
+    ax.set_yticks(())
 
 
 
