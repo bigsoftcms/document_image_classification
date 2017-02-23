@@ -27,14 +27,33 @@ def doc_cnts_paths(data_path):
     return tif_cnt, xml_cnt, txt_cnt, misc_cnt, tif_paths, xml_paths, txt_paths, misc_paths
 
 
+def recursive_files(dir):
+    for path, _, fnames in os.walk(dir):
+        for fname in fnames:
+            yield os.path.join(path, fname)
 
+
+def reservoirSample(stream, k):
+    samples = []
+    for i, x in enumerate(stream):
+        # Generate the reservoir
+        if i <= k:
+            samples.append(x)
+        else:
+            # Randomly replace elements in the reservoir
+            # with a decreasing probability.
+            # Choose an integer between 0 and index
+            replace = random.randint(0, i-1)
+            if replace < k:
+                samples[replace] = x
+    yield samples
 
 
 
 if __name__ == '__main__':
-    wells_path = '/Volumes/Seagate Expansion Drive/Tobin Data/Wells'
+    ext_hd_wells_path = '/Volumes/Seagate Expansion Drive/Tobin Data/Wells'
 
-    tif_cnt, xml_cnt, txt_cnt, misc_cnt, tif_paths, xml_paths, txt_paths, misc_paths = doc_cnts_paths(wells_path)
+    # tif_cnt, xml_cnt, txt_cnt, misc_cnt, tif_paths, xml_paths, txt_paths, misc_paths = doc_cnts_paths(ext_hd_wells_path)
 
     '''
     RESULTS:
@@ -52,24 +71,3 @@ if __name__ == '__main__':
     xml_cnt          int         1937
     xml_paths        list        n=1937
     '''
-
-
-    #folder which contains the sub directories
-    source_dir = wells_path
-
-    #list sub directories
-    for root, dirs, files in os.walk(source_dir):
-
-    #iterate through them
-    for i in dirs:
-
-        #create a new folder with the name of the iterated sub dir
-        path = '/home/mrman/dataset-python/sub-train/' + "%s/" % i
-        os.makedirs(path)
-
-        #take random sample, here 3 files per sub dir
-        filenames = random.sample(os.listdir('/home/mrman/dataset-python/train/' + "%s/" % i ), 3)
-
-        #copy the files to the new destination
-        for j in filenames:
-            shutil.copyfile.copy2('/home/mrman/dataset-python/train/' + "%s/" % i  + j, path)

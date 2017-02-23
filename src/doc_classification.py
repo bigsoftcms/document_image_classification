@@ -253,7 +253,7 @@ if __name__ == '__main__':
     dictionary, bow_corpus = bow_and_dict(lemmatized_corpus, no_below=75, no_above=0.9)
 
     # just tried 40 passes. waiting to review results
-    lda = models.LdaMulticore(bow_corpus, id2word=dictionary, num_topics=31, passes=40, chunksize=500, random_state=1, workers=4)
+    lda = models.LdaMulticore(bow_corpus, id2word=dictionary, num_topics=25, passes=40, chunksize=500, random_state=1, workers=4)
 
     corpora.MmCorpus.serialize('src/lda_mod/well_docs.mm', bow_corpus)
     dictionary.save('src/lda_mod/well_docs.dict')
@@ -263,13 +263,12 @@ if __name__ == '__main__':
 
     sorted(top_topics_lst.iteritems(),key=lambda (k,v): len(v),reverse=True)
 
-    lda.show_topics(-1, formatted=False)
+    print lda.show_topics(-1, formatted=False)
 
 
     for path in files_by_topic[34][0][:30]:
         !open {path}
 
-    #
 
 
 
