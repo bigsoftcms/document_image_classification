@@ -3,9 +3,10 @@ import numpy as np
 from collections import Counter, defaultdict
 from string import punctuation, ascii_lowercase, digits
 import operator
-from itertools import chain
+from itertools import chain, product
 import logging
 import matplotlib.pyplot as plt
+from unidecode import unidecode
 
 import subprocess
 import multiprocessing as mp
@@ -13,6 +14,8 @@ from timeit import timeit
 import time
 
 import spacy
+
+import seaborn as sns; sns.set()
 
 from PIL import Image, ImageSequence
 
@@ -119,13 +122,14 @@ def lemmatize_string(doc, stop_words):
     # First remove punctuation from string
     # .translate is a string operation
     # spaCy expects a unicode object
-    doc = ' '.join(doc.translate(None, punctuation).replace('\n', ' ').split()).decode('utf-8')
+    # doc_rmv_uni = doc.decode('unicode_escape').encode('ascii', 'ignore')
+    doc_for_lemmatization = unidecode(' '.join(doc.translate(None, punctuation).translate(None, digits).replace('\n', ' ').split()).decode('utf-8')).decode('utf-8')
 
     # Run the doc through spaCy
-    doc = nlp(doc)
+    doc_spacy = nlp(doc_for_lemmatization)
 
     # Lemmatize and lower text
-    tokens = [token.lemma_.lower() for token in doc]
+    tokens = [token.lemma_.lower() for token in doc_spacy]
 
     return ' '.join(w for w in tokens if w not in stop_words)
 
@@ -141,9 +145,10 @@ def lemmatize_corpus(txt_paths):
         with open(path) as file:
             raw_corpus.append(file.read())
 
-    stop_specific = ['wattenberg', 'yes', 'na', '00', '000', '01', '011', '200', '320', '4n', 'n2', 'acre', "'s", 'pm', '--', 'number', '1000', '100']
+    stop_two_letters = [''.join(cb) for cb in product(ascii_lowercase, ascii_lowercase)]
+    stop_specific = ['wattenberg', 'yes', 'na', '----', '4n', 'n2', 'acre', "'s", 'pm', '--', 'number', "''", 'ii', 'iii', 'um', 'mu', 'mm', 'mum', 'nwse', 'swne']
 
-    stoplist = STOPWORDS.union([c for c in ascii_lowercase]).union([p for p in punctuation]).union([d for d in digits]).union(stop_specific)
+    stoplist = STOPWORDS.union([c for c in ascii_lowercase]).union([p for p in punctuation]).union([d for d in digits]).union(stop_specific).union(stop_two_letters)
 
     lemmatized_corpus = [lemmatize_string(doc, stoplist) for doc in raw_corpus]
 
@@ -207,6 +212,26 @@ def inspect_classification(bow_corpus, model):
     return top_topics_lst, files_by_topic
 
 
+def plot_doc_topics(bow_corpus, model):
+    '''
+    INPUT: bow_corpus, trained model
+    OUPUT: doc_topics matrix with shape -> rows=number of documents, columns=number of topics. Values are the probabilities of each topic being represented in the document. Also displays and saves the matrix as a seaborn heatmap with the probability bar highlighted on the right side of the plot.
+    '''
+    doc_topics = np.zeros((len(bow_corpus), model.num_topics))
+    for i, doc in enumerate(bow_corpus):
+        tops, probas = zip(*model.get_document_topics(doc))
+        for j, top in enumerate(tops):
+            doc_topics[i,top] = probas[j]
+    sns.heatmap(doc_topics, yticklabels=50)
+    plt.yticks(rotation=0)
+    plt.ylabel('Document Number', fontsize=14)
+    plt.xlabel('Topic Number', fontsize=14)
+    plt.title('Probability of Topic for each Document', fontsize=14)
+    plt.show()
+    plt.savefig('figures/document_topics_heatmap.png')
+    return doc_topics
+
+
 def tfidf_vect(lemm_corpus):
     '''
     INPUT: absolute paths to .txt documents
@@ -265,62 +290,68 @@ if __name__ == '__main__':
 
     sorted(top_topics_lst.iteritems(),key=lambda (k,v): len(v),reverse=True)
 
-    print lda.show_topics(-1, formatted=False)
-
-
-    for path in files_by_topic[34][0][:30]:
-        !open {path}
-
-
-    # Kmeans approach
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
-
-    vectorizer = TfidfVectorizer(max_df=.5)
-    X = vectorizer.fit_transform(lemmatized_corpus)
-    svd = TruncatedSVD(n_components=100)
-    normalizer = Normalizer(copy=False)
-    lsa = make_pipeline(svd, normalizer)
-    X = lsa.fit_transform(X)
-
-    km = MiniBatchKMeans(n_clusters=30, init='k-means++', n_init=1, init_size=500, batch_size=100, random_state=1)
-    km.fit(X)
-
-    original_space_centroids = svd.inverse_transform(km.cluster_centers_)
-    order_centroids = original_space_centroids.argsort()[:, ::-1]
-
-    terms = vectorizer.get_feature_names()
-    for i in range(30):
-        print 'Cluster {}:'.format(i)
-        for ind in order_centroids[i, :10]:
-            print terms[ind]
-        print
-
-    # Adjust code!!
-    fig = plt.figure(figsize=(8, 3))
-    # fig.subplots_adjust(left=0.02, right=0.98, bottom=0.05, top=0.9)
-    colors = ['#4EACC5', '#FF9C34', '#4E9A06']
-
-    # We want to have the same colors for the same cluster from the
-    # MiniBatchKMeans and the KMeans algorithm. Let's pair the cluster centers per
-    # closest one.
-    mbk_means_cluster_centers = np.sort(km.cluster_centers_, axis=0)
-    mbk_means_labels = pairwise_distances_argmin(X, mbk_means_cluster_centers)
-
-    # MiniBatchKMeans
-    # Adjust code!!
-    ax = fig.add_subplot(1, 3, 1)
-    for k, col in zip(range(30), colors):
-        my_members = mbk_means_labels == k
-        cluster_center = mbk_means_cluster_centers[k]
-        ax.plot(X[my_members, 0], X[my_members, 1], 'w',
-                markerfacecolor=col, marker='.')
-        ax.plot(cluster_center[0], cluster_center[1], 'o', markerfacecolor=col, markeredgecolor='k', markersize=6)
-    ax.set_title('KMeans')
-    ax.set_xticks(())
-    ax.set_yticks(())
+    # lda.show_topics(-1, formatted=False)
+    #
+    #
+    # for path in files_by_topic[34][0][:30]:
+    #     !open {path}
 
 
 
+
+
+
+
+##################################################
+    # # Kmeans approach
+    # logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+    #
+    # vectorizer = TfidfVectorizer(max_df=.5)
+    # X = vectorizer.fit_transform(lemmatized_corpus)
+    # svd = TruncatedSVD(n_components=100)
+    # normalizer = Normalizer(copy=False)
+    # lsa = make_pipeline(svd, normalizer)
+    # X = lsa.fit_transform(X)
+    #
+    # km = MiniBatchKMeans(n_clusters=30, init='k-means++', n_init=1, init_size=500, batch_size=100, random_state=1)
+    # km.fit(X)
+    #
+    # original_space_centroids = svd.inverse_transform(km.cluster_centers_)
+    # order_centroids = original_space_centroids.argsort()[:, ::-1]
+    #
+    # terms = vectorizer.get_feature_names()
+    # for i in range(30):
+    #     print 'Cluster {}:'.format(i)
+    #     for ind in order_centroids[i, :10]:
+    #         print terms[ind]
+    #     print
+    #
+    # # Adjust code!!
+    # fig = plt.figure(figsize=(8, 3))
+    # # fig.subplots_adjust(left=0.02, right=0.98, bottom=0.05, top=0.9)
+    # colors = ['#4EACC5', '#FF9C34', '#4E9A06']
+    #
+    # # We want to have the same colors for the same cluster from the
+    # # MiniBatchKMeans and the KMeans algorithm. Let's pair the cluster centers per
+    # # closest one.
+    # mbk_means_cluster_centers = np.sort(km.cluster_centers_, axis=0)
+    # mbk_means_labels = pairwise_distances_argmin(X, mbk_means_cluster_centers)
+    #
+    # # MiniBatchKMeans
+    # # Adjust code!!
+    # ax = fig.add_subplot(1, 3, 1)
+    # for k, col in zip(range(30), colors):
+    #     my_members = mbk_means_labels == k
+    #     cluster_center = mbk_means_cluster_centers[k]
+    #     ax.plot(X[my_members, 0], X[my_members, 1], 'w',
+    #             markerfacecolor=col, marker='.')
+    #     ax.plot(cluster_center[0], cluster_center[1], 'o', markerfacecolor=col, markeredgecolor='k', markersize=6)
+    # ax.set_title('KMeans')
+    # ax.set_xticks(())
+    # ax.set_yticks(())
+    #
+    #
+    #
     # frequency = defaultdict(int)
     # for doc in lemmatized_corpus:
     #     for token in doc.split():
