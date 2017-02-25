@@ -6,6 +6,7 @@ import operator
 from itertools import chain, product
 import logging
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 from unidecode import unidecode
 
 import subprocess
@@ -25,6 +26,8 @@ from sklearn.decomposition import TruncatedSVD
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import Normalizer
 from sklearn.cluster import KMeans, MiniBatchKMeans
+from sklearn.decomposition import PCA
+from sklearn.metrics import silhouette_score, silhouette_samples
 
 from gensim import corpora, models, similarities
 from gensim.parsing.preprocessing import STOPWORDS
@@ -212,16 +215,25 @@ def inspect_classification(bow_corpus, model):
     return top_topics_lst, files_by_topic
 
 
-def plot_doc_topics(bow_corpus, model):
+def doc_topics_matrix(bow_corpus, model):
     '''
     INPUT: bow_corpus, trained model
-    OUPUT: doc_topics matrix with shape -> rows=number of documents, columns=number of topics. Values are the probabilities of each topic being represented in the document. Also displays and saves the matrix as a seaborn heatmap with the probability bar highlighted on the right side of the plot.
+    OUPUT: doc_topics matrix with shape -> rows=number of documents, columns=number of topics. Values are the probabilities of each topic being represented in the document.
     '''
     doc_topics = np.zeros((len(bow_corpus), model.num_topics))
     for i, doc in enumerate(bow_corpus):
         tops, probas = zip(*model.get_document_topics(doc))
         for j, top in enumerate(tops):
             doc_topics[i,top] = probas[j]
+    return doc_topics
+
+
+def plot_doc_topics(doc_topics):
+    '''
+    INPUT: doc_topics matrix with shape -> rows=number of documents, columns=number of topics. Values are the probabilities of each topic being represented in the document.
+    OUPUT: None
+    TASK: Displays and saves the matrix as a seaborn heatmap with the probability bar highlighted on the right side of the plot.
+    '''
     sns.heatmap(doc_topics, yticklabels=50)
     plt.yticks(rotation=0)
     plt.ylabel('Document Number', fontsize=14)
@@ -229,7 +241,6 @@ def plot_doc_topics(bow_corpus, model):
     plt.title('Probability of Topic for each Document', fontsize=14)
     plt.show()
     plt.savefig('figures/document_topics_heatmap.png')
-    return doc_topics
 
 
 def tfidf_vect(lemm_corpus):
@@ -282,19 +293,67 @@ if __name__ == '__main__':
     # just tried 40 passes. waiting to review results
     lda = models.LdaMulticore(bow_corpus, id2word=dictionary, num_topics=25, passes=40, chunksize=500, random_state=1, workers=4)
 
+
+def test_num_topics(bow_corpus, dictionary, n_topics_lst):
+    lda_models = []
+    for t in n_topics_lst:
+        lda_models.append(models.LdaMulticore(bow_corpus, id2word=dictionary, num_topics=t, passes=10, chunksize=500, random_state=1, workers=4))
+    return lda_models
+
+
+    # saving corpus, dictionary, model for LDAvis
     corpora.MmCorpus.serialize('src/lda_mod/well_docs.mm', bow_corpus)
     dictionary.save('src/lda_mod/well_docs.dict')
     lda.save('src/lda_mod/well_docs.model')
 
+
     top_topics_lst, files_by_topic = inspect_classification(bow_corpus, lda)
+
+    lda.show_topics(-1, formatted=False)
+
+
+    for path in files_by_topic[34][0][:30]:
+        !open {path}
+
 
     sorted(top_topics_lst.iteritems(),key=lambda (k,v): len(v),reverse=True)
 
-    # lda.show_topics(-1, formatted=False)
-    #
-    #
-    # for path in files_by_topic[34][0][:30]:
-    #     !open {path}
+
+    ## silhouette plots
+    # silhouette scores: average and per sample
+    doc_topics = doc_topics_matrix(bow_corpus, lda)
+
+    X = PCA(n_components=2).fit_transform(doc_topics)
+
+def pca_doc_topics(bow_corpus, lda_models):
+    doc_topics_lst, X_lst = [], []
+    for mod in lda_models:
+            doc_topics = doc_topics_matrix(bow_corpus, mod)
+            doc_topics_lst.append(doc_topics)
+            X_lst.append(PCA(n_components=2).fit_transform(doc_topics))
+    return doc_topics_lst, X_lst
+
+
+    lst = []
+    for k in top_topics_lst.keys():
+        for v in top_topics_lst[k]:
+            lst.append((v,k))
+
+    doc_top_lst = np.array(sorted(lst))
+
+    ordered_labels = doc_top_lst[:,1]
+
+    n_topics = lda.num_topics
+
+
+
+
+
+
+
+
+
+
 
 
 
