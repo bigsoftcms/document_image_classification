@@ -1,24 +1,19 @@
+import modules.ocr_input_processing as oip
+import modules.image_ocr as io
+import modules.corpus_processing as cp
+
 import os
 import numpy as np
+import subprocess
 from collections import Counter, defaultdict
-from string import punctuation, ascii_lowercase, digits
-import operator
-from itertools import chain, product
+
 import logging
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
-from unidecode import unidecode
-
-import subprocess
-import multiprocessing as mp
-from timeit import timeit
-import time
-
-import spacy
 
 import seaborn as sns; sns.set()
 
-from PIL import Image, ImageSequence
+from PIL import Image
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity, pairwise_distances_argmin
@@ -30,175 +25,31 @@ from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score, silhouette_samples
 
 from gensim import corpora, models, similarities
-from gensim.parsing.preprocessing import STOPWORDS
-
-from nltk.corpus import stopwords as sw
 
 
-# run using %run -i <runfile.py> to avoid re-loading nlp as it takes time to complete
-if not 'nlp' in locals():
-    print 'Loading English Module...'
-    nlp = spacy.load('en')
-    print 'Completed Loading English Module.'
-
-
-def remove_filename_spaces(directory):
+def remove_poor_quality_ocr():
     '''
-    INPUT: main directory where data resides
-    OUTPUT: None
-    TASK: removes white space from file names since shell to open files in other functions don't recognize white space.
-    '''
-    for path, _, files in os.walk(directory):
-        for f in files:
-            if ' ' in f:
-                os.rename(os.path.join(path, f), os.path.join(path, f.replace(' ', '')))
-
-
-def doc_cnts_paths(data_path):
-    '''
-    INPUT: path to data repository
+    INPUT: None
     OUTPUT: (8) specific file counts and paths based on file extensions (i.e. .tif, .xml, .txt)
+    TASK: MAKE COPY OF ENTIRE DATA SET TO DESKTOP BEFORE PROCEDING. Look for documents inside bow_corpus that might not have any tokens (maps, logs, rotated images, poor scans). If found, remove their corresponding .txt/.tif paths to then re-run lemm-tok-dict-bow process.
     '''
-    tif_cnt, xml_cnt, txt_cnt, misc_cnt = 0, 0, 0, 0
-    tif_paths, xml_paths, txt_paths, misc_paths = [], [], [], []
-    for dirpath, dirnames, filenames in os.walk(data_path):
-        for file in filenames:
-            if file.endswith('.tif'):
-                tif_cnt += 1
-                tif_paths.append(os.path.join(dirpath, file))
-            elif file.endswith('.xml'):
-                xml_cnt += 1
-                xml_paths.append(os.path.join(dirpath, file))
-            elif file.endswith('.txt'):
-                txt_cnt += 1
-                txt_paths.append(os.path.join(dirpath, file))
-            else:
-                misc_cnt += 1
-                misc_paths.append(os.path.join(dirpath, file))
-    return tif_cnt, xml_cnt, txt_cnt, misc_cnt, tif_paths, xml_paths, txt_paths, misc_paths
+    file_removal_idx = []
+    for idx, doc in enumerate(bow_corpus):
+        if not doc:
+            file_removal_idx.append(idx)
 
+    if file_removal_idx:
+        for i in file_removal_idx:
+            print 'removing document indexed at: {0}'.format(i)
+            try:
+                os.rename(txt_paths[i], os.path.join('/Users/jpc/Documents/data_science_inmersive/document_image_classification/data/ignore/',txt_paths[i].rsplit('/', 1)[-1]))
+                os.rename(tif_paths[i], os.path.join('/Users/jpc/Documents/data_science_inmersive/document_image_classification/data/ignore',tif_paths[i].rsplit('/', 1)[-1]))
+            except:
+                print 'file not found'
+    else:
+        print 'All documents in bow_corpus have tokens.'
 
-def img_info(tif_paths):
-    '''
-    INPUT: absolute paths to .tif documents
-    OUTPUT: (1) prints counts of different compressions and dpi ranges for all .tif documents. Returns 'info' list containing absolute path to image, compression format, and dpi
-    '''
-    info = []
-    comp_cnt, dpi_cnt = Counter(), Counter()
-    for path in tif_paths:
-        img = Image.open(path)
-        info.append((path, img.info['compression'], img.info['dpi']))
-    for desc in info:
-        comp_cnt[desc[1]] += 1
-        dpi_cnt[desc[2]] += 1
-    print 'Compression Counts: {0} \nDPI Counts: {1}'.format(comp_cnt, dpi_cnt)
-    return info
-
-
-def shell_tesseract(path):
-    '''
-    INPUT: absolute path to .tif document
-    TASK: performs OCR using tesseract from the shell. Creates a text file from the OCRd document using the same name and location as the .tif document.
-    OUTPUT: None
-    '''
-    # tesseract automatically adds a .txt extension to the OCRd document. Name of new document is 3rd argument + .txt added by tesseract
-    subprocess.call(['tesseract', path, path[:-4]])
-
-
-def parallelize_OCR(tif_paths):
-    '''
-    INPUT: paths to .tif files.
-    OUTPUT: time taken to complete task
-    TASK: parallelize OCR of .tif files by calling shell_tesseract and using multiprocessing Pool.
-    ISSUES: not tested as a function yet. Would like to print a progress report every 15 to 30 minutes.
-    '''
-    # parallelize OCR processing and time it
-    pool = mp.Pool(processes=4)
-    task = pool.map(shell_tesseract, tif_paths)
-    return timeit(lambda: task, number=1)
-
-
-def lemm_tokenize_doc(doc):
-    '''
-    INPUT: string that corresponds to a document in a raw corpus and a list of stop words.
-    OUTPUT: (1) a list of tokens that corresponds to a corpus document. Strings are byte decoded, punctuation, digits, and newlines removed, words are lowered and lemmatized (words brought back to their 'base' form), only nouns are kept, non-words and stop-words are removed.
-    PACKAGE USED: spaCy
-    '''
-    # decode bytes to utf-8 from doc
-    ascii_doc = unidecode(doc.decode('utf-8'))
-
-    # remove punctuation, digits, newlines, and lower the text
-    clean_doc = ascii_doc.translate(None, punctuation).translate(None, digits).replace('\n', '').lower()
-
-    # spaCy expects a unicode object
-    spacy_doc = nlp(clean_doc.decode('utf-8'))
-
-    # lemmatize, only keep nouns, transform to ascii as will no longer use spaCy
-    noun_tokens = [unidecode(token.lemma_) for token in spacy_doc if token.pos_ == 'NOUN']
-
-    # keep tokens longer than 2 characters
-    long_tokens = [token for token in noun_tokens if len(token) >= 3]
-
-    # remove tokens that have 3 equal consecutive characters
-    triples = [''.join(triple) for triple in zip(ascii_lowercase, ascii_lowercase, ascii_lowercase)]
-    good_tokens = [token for token in long_tokens if not [triple for triple in triples if triple in token]]
-
-    # remove tokens that are present in stoplist
-    stop_specific = ['wattenberg', 'yes', 'acre', 'number', 'mum', 'nwse', 'swne', 'lease', 'rule', 'drilling', 'permit', 'application', 'form', 'felfwl', 'fnlfsl', 'fnl', 'fsl', 'page', 'file', 'survey', 'facility', 'notice', 'sec', 'area', 'formation', 'corporation', 'phone', 'field', 'energy', 'company', 'production', 'fax', 'resource']
-
-    NLTKstopwords = sw.words('english')
-
-    stoplist = STOPWORDS.union(NLTKstopwords).union(stop_specific)
-
-    final_tokens = [token for token in good_tokens if token not in stoplist]
-
-    return final_tokens
-
-
-def process_corpus(corpus_chunk):
-    '''
-    INPUT: equally sized chunks of raw corpus for pre-processing
-    OUTPUT: (1) lemmatized and tokenized documents for the chunk of corpus supplied to the function.
-    TASK: uses 'lemm_tokenize_doc' function to create a list of lemm-tokenized documents that correspond to all the documents in the chunk of raw corpus supplied.
-    '''
-    return [lemm_tokenize_doc(doc) for doc in corpus_chunk]
-
-
-def parallel_corpus_lemm_tokenization(txt_paths):
-    '''
-    INPUT: paths to OCRd .tif files that are in .txt format.
-    OUTPUT: (1) lemmatized and tokenized corpus
-    TASK: use multiprocessing Pool to parallelize task using all cores on machine.
-    '''
-    raw_corpus = []
-    for path in txt_paths:
-        with open(path) as file:
-            raw_corpus.append(file.read())
-
-    cores = mp.cpu_count()
-    n = len(txt_paths)/cores
-
-    corpus_chunks = [raw_corpus[i:i + n] for i in xrange(0, len(raw_corpus), n)]
-
-    pool = mp.Pool(processes=4)
-
-    return list(chain(*pool.map(process_corpus, corpus_chunks)))
-
-
-def bow_and_dict(tokenized_corpus, no_below, no_above=0.5):
-    '''
-    INPUT: lemmatized_corpus. 'no_below' helps with filtering out tokens that appear in less than the 'no_below' number of documents specified. 'no_above' is a fraction of the total corpus and it helps with filtering out tokens that appear in more than the 'no_above' fraction of documents specified. Basically, helps to filter out ubiquitous words that were not caught by stop_words.
-    OUTPUT: (1) dictionary, which is a collection of all the unique tokens in the corpus. (2) Bag of words corpus, which represents each document in the corpus as a list of tuples with two elements - token id (referenced to the dictionary) and token frequency.
-    TASK: tokenizes documents, creates dictionary from tokens, reduces size of dictionary based on 'no_below' and 'no_above' parameters.
-    PACKAGE USED: gensim
-    '''
-    dictionary = corpora.Dictionary(tokenized_corpus)
-
-    # words appearing in less than 'no_below' documents to be excluded from dictionary
-    dictionary.filter_extremes(no_below=no_below)
-    bow_corpus = [dictionary.doc2bow(text) for text in tokenized_corpus]
-
-    return dictionary, bow_corpus
+    return oip.doc_cnts_paths(data_path)
 
 
 def inspect_classification(bow_corpus, model):
@@ -230,6 +81,16 @@ def inspect_classification(bow_corpus, model):
     return top_topics_dict, files_by_topic_defdict
 
 
+def display_docs(files_by_topic_defdict, topic_number, low=0, high=30):
+    '''
+    INPUT: files_by_topic_defdict (defaultdict with documents belonging to specific topic). Topic number to be inspected. Range of documents to be displayed (low to high).
+    OUTPUT: None
+    TASK: uses subprocess to call 'open' on bash and display documents of interest.
+    '''
+    for path in files_by_topic_defdict[topic_number][0][low:high]:
+        subprocess.call(['open', path])
+
+
 def doc_topics_matrix(bow_corpus, model):
     '''
     INPUT: bow_corpus, trained model
@@ -240,6 +101,7 @@ def doc_topics_matrix(bow_corpus, model):
         tops, probas = zip(*model.get_document_topics(doc))
         for j, top in enumerate(tops):
             doc_topics[i,top] = probas[j]
+
     return doc_topics
 
 
@@ -257,15 +119,20 @@ def plot_doc_topics(doc_topics):
     plt.show()
     plt.savefig('figures/document_topics_heatmap.png')
 
-## docstring needed
-def test_num_topics(bow_corpus, dictionary, n_topics_lst, passes_lst, chunksize_lst, minimum_probability_lst):
+
+def test_num_topics(bow_corpus, dictionary, n_topics_lst, chunksize, workers):
+    '''
+    INPUT: n_topics_lst is a list with number of topics to iterate through. chunksize is calculated as number of documentes divided by number of cores. workers are how many cores are available for computation.
+    OUTPUT: list of trained LDA models
+    TASK: 'grid search' for optimal number of topics which is determined by visual inspection of LDAvis (uniform size circles, minimum overlap).
+    NOTES: By previous iteration of this fuction, determined optimal number of passes was at least 30 and that minimum_probability had no effect on results. To optimize use of multiple cores, chunksize will be set to number of documents in corpus divided by cores.
+    '''
     lda_models = defaultdict(list)
     for t in n_topics_lst:
-        for p in passes_lst:
-            for c in chunksize_lst:
-                for min_p in minimum_probability_lst:
-                    lda_models['n_topics: {0}, passes: {1}, chunksize: {2}, min probability: {3}'.format(t, p, c, min_p)].append(models.LdaMulticore(bow_corpus, id2word=dictionary, num_topics=t, passes=p, chunksize=c, minimum_probability=min_p, random_state=1, workers=4))
+        lda_models['n_topics: {0}, chunksize: {1}, workers: {2}'.format(t, chunksize, workers)].append(models.LdaMulticore(bow_corpus, id2word=dictionary, num_topics=t, passes=30, chunksize=chunksize, random_state=1, workers=workers))
+
     return lda_models
+
 
 ## docstring needed
 def pca_doc_topics(bow_corpus, lda_models):
@@ -274,6 +141,7 @@ def pca_doc_topics(bow_corpus, lda_models):
             doc_topics = doc_topics_matrix(bow_corpus, mod)
             doc_topics_lst.append(doc_topics)
             X_lst.append(PCA(n_components=2).fit_transform(doc_topics))
+
     return doc_topics_lst, X_lst
 
 
@@ -284,6 +152,7 @@ def tfidf_vect(lemm_corpus):
     '''
     vectorizer = TfidfVectorizer(min_df=1)
     vectorizer.fit_transform(lemm_corpus)
+
     return vectorizer
 
 
@@ -309,84 +178,136 @@ def doc_sim(txt_paths, path, tfidf_matrix):
 
 
 if __name__ == '__main__':
-    data_path = '/Users/jpc/Documents/data_science_inmersive/document_image_classification/data/Wells'
-
     # allows display of gensim LDA results as the model is being trained
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
 
+    data_path = '/Users/jpc/Documents/data_science_inmersive/document_image_classification/data/Wells'
+
     # store counts and paths for files of interest
-    tif_cnt, xml_cnt, txt_cnt, misc_cnt, tif_paths, xml_paths, txt_paths, misc_paths = doc_cnts_paths(data_path)
+    tif_cnt, xml_cnt, txt_cnt, misc_cnt, tif_paths, xml_paths, txt_paths, misc_paths = oip.doc_cnts_paths(data_path)
 
     # lemmatized_corpus = lemmatize_corpus(txt_paths)
-    tokenized_corpus = parallel_corpus_lemm_tokenization(txt_paths)
+    tokenized_corpus = cp.parallel_corpus_lemm_tokenization(txt_paths)
 
-    # # 'no_below' changes the size of the dictionary
-    # # adjust for different classification results
-    dictionary, bow_corpus = bow_and_dict(tokenized_corpus, no_below=75, no_above=0.9)
+    # 'no_below' changes the size of the dictionary. Adjust for different classification results
+    dictionary, bow_corpus = cp.bow_and_dict(tokenized_corpus, no_below=75, no_above=0.9)
 
-    # # just tried 40 passes. waiting to review results
-    # lda = models.LdaMulticore(bow_corpus, id2word=dictionary, num_topics=14, passes=20, chunksize=500, random_state=1, workers=4, minimum_probability=0.5)
-    # #
+    # # MAKE COPY OF ENTIRE DATA SET TO DESKTOP BEFORE PROCEDING
+    # # inspect bow_corpus for documents with no tokens and return paths excluding documents with no tokens in bow_corpus
+    # tif_cnt, xml_cnt, txt_cnt, misc_cnt, tif_paths, xml_paths, txt_paths, misc_paths = remove_poor_quality_ocr()
 
-    lda = models.ldamodel.LdaModel.load('lda_models/n_topics: 7, passes: 30, chunksize: 277, min probability: 0.01.model')
+    lda = models.LdaMulticore(bow_corpus, id2word=dictionary, num_topics=7, passes=30, chunksize=264, random_state=1, workers=4)
 
 
-    # ## saving corpus, dictionary, model for LDAvis
-    # corpora.MmCorpus.serialize('src/lda_mod/well_docs.mm', bow_corpus)
-    # dictionary.save('src/lda_mod/well_docs.dict')
+    ## saving corpus, dictionary, model for LDAvis
+    corpora.MmCorpus.serialize('src/lda_mod/well_docs.mm', bow_corpus)
+    dictionary.save('src/lda_mod/well_docs.dict')
+    lda.save('src/lda_mod/well_docs.model') # to save a single model for inspection
 
-    # ## parameters to train models below
+
+    ## visual inspection of the classification
+    top_topics_dict, files_by_topic_defdict = inspect_classification(bow_corpus, lda)
+
+    ## number of topics to train models below
     # n_topics_lst = [6, 10, 14, 20, 24]
-    # passes_lst = [2, 10, 20, 30]
-    # chunksize_lst = [200, 277, 500, 1000]
-    # minimum_probability_lst = [0.01, 0.25, 0.5]
-    # #
-    # # ## train 240 models based on parameters above
+
+    ## train 240 models based on parameters above
     # # ## took 3 hours to run
-    # lda_models = test_num_topics(bow_corpus, dictionary, n_topics_lst, passes_lst, chunksize_lst, minimum_probability_lst)
-    #
+    # lda_models = test_num_topics(bow_corpus, dictionary, n_topics_lst, chunksize=277, workers=4)
+
+    ## save models from 'grid search' to become available for LDAvis
     # for key, mod in lda_models.items():
     #     try:
     #         mod[0].save('src/lda_models/'+key+'.model')
     #     except:
     #         pass
-    #
-
-    top_topics_dict, files_by_topic_defdict = inspect_classification(bow_corpus, lda)
-
-    ## find distribution of tokens per topic
-    ## plots all topic token distributions in one plot
-    topic_masks = []
-    tok_per_topic = []
-    for n in range(lda.num_topics):
-        topic_masks.append(top_topics_dict[n][:,0].astype(int))
-        tok_per_topic.append(np.array(bow_corpus)[topic_masks[n]])
-
-        cnt = Counter()
-        for doc, tok in enumerate(tok_per_topic):
-            for tup in tok:
-                cnt[tup[0]] += tup[1]
-
-        labels, values = zip(*cnt.items())
-        sns.distplot(values)
-    plt.xlabel('token counts per topic')
-        # sns.barplot(values, labels, orient='h')
-
-    ## perplexity measure per topic
-    for n in range(lda.num_topics):
-        print 'log_perplexity for topic {0}: {1}'.format(n, lda.log_perplexity(np.array(bow_corpus)[topic_masks[n]]))
-
-    mask = top_topics_dict[0][:,0].astype(int)
-    tok_per_topic = np.array(bow_corpus)[mask]
-
-    topic_docs_tok_dict = {}
-    for idx, doc_num in enumerate(mask):
-        topic_docs_tok_dict[doc_num] = tok_per_topic[idx]
 
 
+
+    # ## find distribution of tokens per topic
+    # ## plots all topic token distributions in one plot
+    # topic_masks = []
+    # tok_per_topic = []
+    # for n in range(lda.num_topics):
+    #     topic_masks.append(top_topics_dict[n][:,0].astype(int))
+    #     tok_per_topic.append(np.array(bow_corpus)[topic_masks[n]])
     #
     #
-    # # lda.save('src/lda_mod/well_docs.model')
+    #
+    #     cnt = Counter()
+    #     for doc, tok in enumerate(tok_per_topic[0]):
+    #         for tup in tok:
+    #             cnt[tup[0]] += tup[1]
+    #
+    #     labels, values = zip(*cnt.items())
+    #     sns.distplot(values)
+    # plt.xlabel('token counts per topic')
+    #     # sns.barplot(values, labels, orient='h')
+    #
+    #
+    # ## create dataframe: topic, doc#, dict_id, token, token count
+    #
+    # top_col_len = defaultdict(list)
+    # for t in range(lda.num_topics):
+    #     for doc in tok_per_topic[t]:
+    #         top_col_len[t].append(len(doc))
+    #
+    #
+    # # key is topic. values are arrays corresponding to each document in the topic. content of arrays is topic number repeated the number of tokens in that document.
+    # topics_col = defaultdict(list)
+    # for t in range(lda.num_topics):
+    #     for doc in range(len(tok_per_topic[t])):
+    #         topics_col[t].append(np.repeat(t, top_col_len[t][doc]))
+    #
+    # doc_num_col = defaultdict(list)
+    # for t in range(lda.num_topics):
+    #     for doc_id, doc in enumerate(tok_per_topic[t]):
+    #         doc_num_col[t].append(np.repeat(topic_masks[t][doc_id], len(doc)))
+    #
+    # dict_id = defaultdict(list)
+    # for t in range(lda.num_topics):
+    #     for doc in tok_per_topic[t]:
+    #         dict_id[t].append(zip(*doc))
+    #
+    #
+    # topics_col_idx = []
+    # for t in range(lda.num_topics):
+    #     topics_col_idx.append(np.concatenate(topics_col[t]).ravel())
+    # x1 = np.concatenate(topics_col_idx).ravel()
+    #
+    # docs_col_idx = []
+    # for t in range(lda.num_topics):
+    #     docs_col_idx.append(np.concatenate(doc_num_col[t]).ravel())
+    # x2 = np.concatenate(docs_col_idx).ravel()
+    #
+    # dict_col_idx = []
+    # cnt_empty = 0
+    # for t in range(lda.num_topics):
+    #     for i, d in enumerate(tok_per_topic[t]):
+    #         if not d:
+    #             # tok_per_topic[t][i] = [(0,0)]
+    #             tok_per_topic[t][i] = ''
+    #             cnt_empty+=1
+    #     dict_col_idx.append(np.vstack(tok_per_topic[t]))
+    # # x3 = np.concatenate(dict_col_idx)
+
+
+
+    # ## perplexity measure per topic
+    # for n in range(lda.num_topics):
+    #     print 'log_perplexity for topic {0}: {1}'.format(n, lda.log_perplexity(np.array(bow_corpus)[topic_masks[n]]))
+    #
+    # mask = top_topics_dict[0][:,0].astype(int)
+    # tok_per_topic = np.array(bow_corpus)[mask]
+    #
+    # topic_docs_tok_dict = {}
+    # for idx, doc_num in enumerate(mask):
+    #     topic_docs_tok_dict[doc_num] = tok_per_topic[idx]
+
+
+    #
+    #
+
     #
     #
 
@@ -421,9 +342,10 @@ if __name__ == '__main__':
 
     # lda.show_topics(-1, formatted=False)
     # #
-    def display_docs(topic_number, low=0, high=30):
-        for path in files_by_topic_defdict[topic_number][0][low:high]:
-            !open {path}
+
+    # top_topics_dict, files_by_topic_defdict = inspect_classification(bow_corpus, lda)
+
+
 
     # open files of interest. Subset by document number
     # !open {tif_paths[981]}
