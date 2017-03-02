@@ -1,10 +1,12 @@
 import modules.ocr_input_processing as oip
 import modules.image_ocr as io
 import modules.main_corpus_processing as mcp
-import modules.sub_corpus_processing as scp
+# import modules.sub_corpus_processing as scp
 
 import os
+import random
 import numpy as np
+import pandas as import pd
 import subprocess
 from collections import Counter, defaultdict
 
@@ -28,23 +30,39 @@ from sklearn.metrics import silhouette_score, silhouette_samples
 from gensim import corpora, models, similarities
 
 
-def remove_poor_quality_ocr():
+random.seed(1)
+
+
+def train_lda(paths, dict_no_below, cores, n_topics):
     '''
-    INPUT: None
+    INPUT: paths to .txt files to train model. dict_no_below - remove token that is only present in less than the dict_no_below number of docs supplied. cores - how many are available for processing. n_topics determined to train the model.
+    OUTPUT: (4) tokenized_corpus, dictionary, bow_corpus, LDA model
+    '''
+    tokenized_corpus = mcp.parallel_corpus_lemm_tokenization(paths)
+
+    # no_below = 500 for a first LDA pass to filter out low token count documents, such as maps, photos, or poor quality scans
+    dictionary, bow_corpus = mcp.bow_and_dict(tokenized_corpus, no_below=dict_no_below, no_above=0.9)
+
+    chunk = len(paths)/cores
+
+    # train the LDA model
+    lda = models.LdaMulticore(bow_corpus, id2word=dictionary, num_topics=n_topics, passes=30, chunksize=chunk, random_state=1, workers=cores)
+
+    return tokenized_corpus, dictionary, bow_corpus, lda
+
+
+def remove_poor_quality_ocr(file_removal_idx):
+    '''
+    INPUT: file_removal_idx - index to .txt/.tif paths to be removed
     OUTPUT: (8) specific file counts and paths based on file extensions (i.e. .tif, .xml, .txt)
     TASK: MAKE COPY OF ENTIRE DATA SET TO DESKTOP BEFORE PROCEDING. Look for documents inside bow_corpus that might not have any tokens (maps, logs, rotated images, poor scans). If found, remove their corresponding .txt/.tif paths to then re-run lemm-tok-dict-bow process.
     '''
-    file_removal_idx = []
-    for idx, doc in enumerate(bow_corpus):
-        if not doc:
-            file_removal_idx.append(idx)
-
     if file_removal_idx:
         for i in file_removal_idx:
             print 'removing document indexed at: {0}'.format(i)
             try:
-                os.rename(txt_paths[i], os.path.join('/Users/jpc/Documents/data_science_inmersive/document_image_classification/data/ignore/',txt_paths[i].rsplit('/', 1)[-1]))
-                os.rename(tif_paths[i], os.path.join('/Users/jpc/Documents/data_science_inmersive/document_image_classification/data/ignore',tif_paths[i].rsplit('/', 1)[-1]))
+                os.rename(txt_paths[i], os.path.join('/Users/jpc/Documents/data_science_inmersive/document_image_classification/data/ignore_general',txt_paths[i].rsplit('/', 1)[-1]))
+                os.rename(tif_paths[i], os.path.join('/Users/jpc/Documents/data_science_inmersive/document_image_classification/data/ignore_general',tif_paths[i].rsplit('/', 1)[-1]))
             except:
                 print 'file not found'
     else:
@@ -53,9 +71,22 @@ def remove_poor_quality_ocr():
     return oip.doc_cnts_paths(data_path)
 
 
+def inspect_bow_corpus(bow_corpus):
+    '''
+    INPUT: bow_corpus
+    OUTPUT: list of indices to documents that contribute no tokens to bow_corpus
+    '''
+    file_removal_idx = []
+    for idx, doc in enumerate(bow_corpus):
+        if not doc:
+            file_removal_idx.append(idx)
+
+    return file_removal_idx
+
+
 def inspect_classification(bow_corpus, model, txt_paths):
     '''
-    INPUT: bow_corpus, model (trained).
+    INPUT: bow_corpus, model (trained), paths to .txt files used to train model.
     OUTPUT: list of .tif paths to the documents grouped under 'topic' by the model
     TASK: passing a document from the corpus into the model returns a list of the top topics with their corresponding probabilities. Sort and select topic with highest probability for that document. Aggregate results in a defaultdict with key='topic' and value='document number that references .txt/.tif path'.
     ISSUES: Trying to group documents into specific topics and order by decreasing amount of documents per topic; instead of using sparse code to populate insp_cnt list in name/main block.
@@ -102,6 +133,27 @@ def display_docs(files_by_topic_defdict, topic_number, low=0, high=30):
     '''
     for path in files_by_topic_defdict[topic_number][0][low:high]:
         subprocess.call(['open', path])
+
+
+def topic_token_dist(model, dictionary, num_words=10):
+    '''
+    INPUT: trained LDA model, dictionary, top num_words to include for each topic.
+    OUTPUT: pandas dataframe of topic, top tokens, token dictionary id, and probability of token in a topic.
+    '''
+    tok_prob_lst = zip(*model.show_topics(-1, formatted=False, num_words=num_words))[1]
+    topic_lst = []
+    tok_lst = []
+    prob_lst = []
+    for t in range(model.num_topics):
+        topic_lst.append(np.repeat(t, num_words).tolist())
+        tok_lst.append(zip(*tok_prob_lst[t])[0])
+        prob_lst.append(zip(*tok_prob_lst[t])[1])
+
+    tokid_lst = [dictionary.token2id[i] for i in np.array(tok_lst).ravel()]
+
+    df = pd.DataFrame({'topic': np.array(topic_lst).ravel(), 'token': np.array(tok_lst).ravel(), 'token_id': tokid_lst, 'token_prob': np.array(prob_lst).ravel()})
+
+    return df
 
 
 def docs_topic_mask(model, top_topics_dict):
@@ -211,34 +263,98 @@ if __name__ == '__main__':
     # store counts and paths for files of interest
     tif_cnt, xml_cnt, txt_cnt, misc_cnt, tif_paths, xml_paths, txt_paths, misc_paths = oip.doc_cnts_paths(data_path)
 
-    # lemmatized_corpus = lemmatize_corpus(txt_paths)
-    tokenized_corpus = mcp.parallel_corpus_lemm_tokenization(txt_paths)
+    no_below = int(txt_cnt * 0.15)
 
-    # 'no_below/no_above adjusts contents and size of the dictionary. After several iterations and inspecting visually the results, chose the following. Produces 137 unique tokens.
-    dictionary, bow_corpus = mcp.bow_and_dict(tokenized_corpus, no_below=150, no_above=0.9)
+    tokenized_corpus, dictionary, bow_corpus, lda = train_lda(paths=txt_paths, dict_no_below=no_below, cores=4, n_topics=7)
+
+    # find index of documents to txt_paths that contribute no tokens to bow_corpus
+    file_removal_idx = inspect_bow_corpus(bow_corpus)
 
     # # MAKE COPY OF ENTIRE DATA SET TO DESKTOP BEFORE PROCEDING
     # # inspect bow_corpus for documents with no tokens and return paths excluding documents with no tokens in bow_corpus
-    # tif_cnt, xml_cnt, txt_cnt, misc_cnt, tif_paths, xml_paths, txt_paths, misc_paths = remove_poor_quality_ocr()
+    # tif_cnt, xml_cnt, txt_cnt, misc_cnt, tif_paths, xml_paths, txt_paths, misc_paths = remove_poor_quality_ocr(file_removal_idx)
 
-    # single model evaluation after running 'grid search' for best number of topics
-    lda = models.LdaMulticore(bow_corpus, id2word=dictionary, num_topics=7, passes=30, chunksize=264, random_state=1, workers=4)
-
-    # saving corpus, dictionary, model for LDAvis
+    # ******
+    # saving corpus, dictionary, model for LDAvis inspection (use a jupyter-notebook)
     corpora.MmCorpus.serialize('src/lda_mod/well_docs.mm', bow_corpus)
     dictionary.save('src/lda_mod/well_docs.dict')
-    lda.save('src/lda_mod/well_docs.model') # to save a single model for inspection
+    lda.save('src/lda_mod/well_docs.model')
+    # ******
 
-    # # ******
-    # # visual inspection of the classification using inspect_classification, count_docs_per_topic, display_docs functions
-    # top_topics_dict, files_by_topic_defdict = inspect_classification(bow_corpus, lda, txt_paths)
-    #
-    # docs_per_topic = count_docs_per_topic(top_topics_dict)
-    # lda.show_topics(-1, formatted=False)
-    #
-    # display_docs(files_by_topic_defdict, 0, high=218)
-    # # ******
+    # ******
+    # visual inspection of the classification using inspect_classification, count_docs_per_topic, display_docs functions
+    top_topics_dict, files_by_topic_defdict = inspect_classification(bow_corpus, lda, txt_paths)
 
+    count_docs_per_topic(top_topics_dict)
+
+    lda.show_topics(-1, formatted=False)
+
+    display_docs(files_by_topic_defdict, 0, high=218)
+    # ******
+
+
+
+
+    df_10 = topic_token_dist(lda, dictionary)
+    grid = sns.FacetGrid(data=df_10, row='topic', hue='topic', sharey=False, size=1.75, aspect=2)
+    grid.map(sns.barplot, 'token_prob', 'token')
+    grid.set(ylabel='', xlabel='')
+    plt.text(-0.11, -33.5, 'Tokens', va='center', rotation='vertical', size=14)
+    plt.text(0.10, 13, 'Token Probability', ha='center', size=14)
+
+    df_50 = topic_token_dist(lda, dictionary, num_words=50)
+    p = sns.swarmplot(data=df_50, x='topic', y='token_prob', size=6)
+    p.set(ylabel='', xlabel='')
+    plt.text(-1.3, 0.075, 'Token Probability', va='center', rotation='vertical', size=14)
+    plt.text(3, -0.075, 'Topic', ha='center', size=14)
+
+
+
+
+
+
+
+
+    # tokenized_corpus = mcp.parallel_corpus_lemm_tokenization(txt_paths)
+    #
+    # dictionary, bow_corpus = mcp.bow_and_dict(tokenized_corpus, no_below=150)
+    #
+    # dictionary.merge_with(corpora.dictionary.Dictionary(['north east latitude longitude azi inc vertical section bottom hole degrees degree deg angle ft survey directional curvature curve sea level coordinate md true build inclination azimuth toolface meridian magnetic declination dip lat long turn dogleg compass mwd anticollision'.split()]))
+    #
+    # bow_corpus = [dictionary.doc2bow(text) for text in tokenized_corpus]
+    #
+    # chunk = txt_cnt/4
+    #
+    # lda = models.LdaMulticore(bow_corpus, id2word=dictionary, num_topics=2, passes=30, chunksize=chunk, random_state=1, workers=4)
+    #
+    #
+    #
+    # corpora.MmCorpus.serialize('src/lda_mod/well_docs.mm', bow_corpus1)
+    # dictionary1.save('src/lda_mod/well_docs.dict')
+    # lda1.save('src/lda_mod/well_docs.model')
+    #
+    #
+
+
+
+    # sub_items = []
+    # sub_tokenized_corpus_lst = defaultdict(list)
+    # sub_dictionary_lst = defaultdict(list)
+    # sub_bow_corpus_lst = defaultdict(list)
+    # sub_lda = defaultdict(list)
+    #
+    #
+    # topic_masks = docs_topic_mask(lda, top_topics_dict)
+    #
+    # sub_items = []
+    # sub_txt_paths = []
+    # for t in range(lda.num_topics):
+    #     sub_txt_paths.append(np.array(txt_paths)[topic_masks[t]])
+    #
+    #     sub_items.append(train_lda(paths=sub_txt_paths[t], dict_no_below=50, cores=4, n_topics=2))
+    #
+    #
+    #
 
     # # ******
     # # number of topics to train models below
@@ -255,33 +371,54 @@ if __name__ == '__main__':
     # # ******
 
 
-    # ******
-    # create sub-corpuses from original corpus, splitting on topics from first trained model. Test on topic 6: directional surveys bin
-    topic_masks = docs_topic_mask(lda, top_topics_dict)
-    sub_corpus_txt_paths = []
-    for t in range(lda.num_topics):
-        sub_corpus_txt_paths.append(np.array(txt_paths)[topic_masks[t]])
-
-    tokenized_sub_corpus = scp.parallel_corpus_lemm_tokenization(sub_corpus_txt_paths[6])
-
-    sub_dictionary, bow_sub_corpus = cp.bow_and_dict(tokenized_sub_corpus, no_below=10, no_above=0.9)
-
-    lda_sub = models.LdaMulticore(bow_sub_corpus, id2word=sub_dictionary, num_topics=4, passes=30, chunksize=29, random_state=1, workers=4)
-
-    corpora.MmCorpus.serialize('src/lda_sub_models/sub_well_docs.mm', bow_sub_corpus)
-    sub_dictionary.save('src/lda_sub_models/sub_well_docs.dict')
-    lda_sub.save('src/lda_sub_models/sub_well_docs.model') # to save a single model for inspection
-
-    sub_top_topics_dict, sub_files_by_topic_defdict = inspect_classification(bow_sub_corpus, lda_sub, sub_corpus_txt_paths[6])
-
-    sub_docs_per_topic = count_docs_per_topic(sub_top_topics_dict)
-
-    lda_sub.show_topics(-1, formatted=False)
-
-    display_docs(sub_files_by_topic_defdict, 0, high=218)
-
-def find_empty
-    # ******
+    # # ******
+    # # create sub-corpuses from original corpus, splitting on topics from first trained model. Test on topic 6: directional surveys bin
+    # topic_masks = docs_topic_mask(lda, top_topics_dict)
+    # sub_corpus_txt_paths = []
+    # for t in range(lda.num_topics):
+    #     sub_corpus_txt_paths.append(np.array(txt_paths)[topic_masks[t]])
+    #
+    # tokenized_sub_corpus = scp.parallel_corpus_lemm_tokenization(sub_corpus_txt_paths[0])
+    #
+    # sub_dictionary, bow_sub_corpus = cp.bow_and_dict(tokenized_sub_corpus, no_below=55, no_above=0.5)
+    #
+    # # update dictionary after observing results
+    # sub_dictionary.merge_with(corpora.dictionary.Dictionary(['north east latitude longitude azi inc vertical section bottom hole degrees degree deg angle ft survey directional curvature curve sea level coordinate md true build inclination azimuth toolface meridian magnetic declination dip lat long turn dogleg compass mwd anticollision'.split()]))
+    #
+    # # update bow_sub_corpus with updated dictionary
+    # bow_sub_corpus = [sub_dictionary.doc2bow(text) for text in tokenized_sub_corpus]
+    #
+    # # move documents that provide no tokens to bow_sub_corpus
+    # file_removal_idx = inspect_bow_corpus(bow_sub_corpus)
+    #
+    # topic_docs_removal_idx = topic_masks[1][file_removal_idx]
+    #
+    # if topic_docs_removal_idx:
+    #     for i in topic_docs_removal_idx:
+    #         print 'removing document indexed at: {0}'.format(i)
+    #         try:
+    #             os.rename(txt_paths[i], os.path.join('/Users/jpc/Documents/data_science_inmersive/document_image_classification/data/ignore_general/sub_topics',txt_paths[i].rsplit('/', 1)[-1]))
+    #             os.rename(tif_paths[i], os.path.join('/Users/jpc/Documents/data_science_inmersive/document_image_classification/data/ignore_general/sub_topics',tif_paths[i].rsplit('/', 1)[-1]))
+    #         except:
+    #             print 'file not found'
+    # else:
+    #     print 'All documents in bow_sub_corpus have tokens.'
+    #
+    #
+    # lda_sub = models.LdaMulticore(bow_sub_corpus, id2word=sub_dictionary, num_topics=2, passes=25, chunksize=29, random_state=1, workers=4)
+    #
+    # corpora.MmCorpus.serialize('src/lda_sub_models/sub_well_docs.mm', bow_sub_corpus)
+    # sub_dictionary.save('src/lda_sub_models/sub_well_docs.dict')
+    # lda_sub.save('src/lda_sub_models/sub_well_docs.model') # to save a single model for inspection
+    #
+    # sub_top_topics_dict, sub_files_by_topic_defdict = inspect_classification(bow_sub_corpus, lda_sub, sub_corpus_txt_paths[1])
+    #
+    # sub_docs_per_topic = count_docs_per_topic(sub_top_topics_dict)
+    #
+    # lda_sub.show_topics(-1, formatted=False)
+    #
+    # display_docs(sub_files_by_topic_defdict, 0, high=218)
+    # # ******
 
 
     ## find distribution of tokens per topic

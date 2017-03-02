@@ -39,14 +39,14 @@ def lemm_tokenize_doc(doc):
     noun_tokens = [unidecode(token.lemma_) for token in spacy_doc if token.pos_ == 'NOUN']
 
     # keep tokens longer than 2 characters
-    long_tokens = [token for token in noun_tokens if len(token) >= 3]
+    long_tokens = [token for token in noun_tokens if len(token) >= 3 and len(token) < 15]
 
     # remove tokens that have 3 equal consecutive characters
     triples = [''.join(triple) for triple in zip(ascii_lowercase, ascii_lowercase, ascii_lowercase)]
     good_tokens = [token for token in long_tokens if not [triple for triple in triples if triple in token]]
 
     # remove tokens that are present in stoplist
-    stop_specific = ['wattenberg', 'yes', 'acre', 'number', 'mum', 'nwse', 'swne', 'lease', 'rule', 'drilling', 'permit', 'application', 'form', 'felfwl', 'fnlfsl', 'fnl', 'fsl', 'page', 'file', 'date', 'state', 'surface']
+    stop_specific = ['wattenberg', 'yes', 'acre', 'number', 'mum', 'nwse', 'swne', 'lease', 'rule', 'drilling', 'permit', 'application', 'form', 'felfwl', 'fnlfsl', 'fnl', 'fsl', 'page', 'file', 'date', 'state', 'surface', 'location', 'oil', 'operator', 'commission', 'colorado', 'conservation', 'prod']
 
     NLTKstopwords = sw.words('english')
 

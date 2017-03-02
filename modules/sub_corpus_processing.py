@@ -54,8 +54,6 @@ def lemm_tokenize_doc(doc, stop):
     if stop == 'survey':
         stop_specific = []
 
-    print stop_specific
-
     NLTKstopwords = sw.words('english')
 
     stoplist = STOPWORDS.union(NLTKstopwords).union(stop_specific)
@@ -97,18 +95,22 @@ def parallel_corpus_lemm_tokenization(txt_paths, stop='general'):
     return list(chain(*pool.map(partial_process_corpus, corpus_chunks)))
 
 
-def bow_and_dict(tokenized_corpus, no_below=5, no_above=0.5, keep_n=100000):
+def dct(tokenized_corpus, no_below=5, no_above=0.5, keep_n=100000):
+    dictionary = corpora.Dictionary(tokenized_corpus)
+
+    # words appearing in less than 'no_below' documents to be excluded from dictionary
+    dictionary.filter_extremes(no_below=no_below, no_above=no_above, keep_n=keep_n)
+
+    return dictionary
+
+
+def bow(dictionary, tokenized_corpus):
     '''
     INPUT: lemmatized_corpus. 'no_below' helps with filtering out tokens that appear in less than the 'no_below' number of documents specified. 'no_above' is a fraction of the total corpus and it helps with filtering out tokens that appear in more than the 'no_above' fraction of documents specified. Basically, helps to filter out ubiquitous words that were not caught by stop_words.
     OUTPUT: (1) dictionary, which is a collection of all the unique tokens in the corpus. (2) Bag of words corpus, which represents each document in the corpus as a list of tuples with two elements - token id (referenced to the dictionary) and token frequency.
     TASK: tokenizes documents, creates dictionary from tokens, reduces size of dictionary based on 'no_below' and 'no_above' parameters.
     PACKAGE USED: gensim
     '''
-    dictionary = corpora.Dictionary(tokenized_corpus)
-
-    # words appearing in less than 'no_below' documents to be excluded from dictionary
-    dictionary.filter_extremes(no_below=no_below, no_above=no_above, keep_n=keep_n)
-
     bow_corpus = [dictionary.doc2bow(text) for text in tokenized_corpus]
 
-    return dictionary, bow_corpus
+    return bow_corpus
