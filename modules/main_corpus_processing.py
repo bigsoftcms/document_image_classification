@@ -46,7 +46,7 @@ def lemm_tokenize_doc(doc):
     good_tokens = [token for token in long_tokens if not [triple for triple in triples if triple in token]]
 
     # remove tokens that are present in stoplist
-    stop_specific = ['wattenberg', 'yes', 'acre', 'number', 'mum', 'nwse', 'swne', 'lease', 'rule', 'drilling', 'permit', 'application', 'form', 'felfwl', 'fnlfsl', 'fnl', 'fsl', 'page', 'file', 'date', 'state', 'surface', 'location', 'oil', 'operator', 'commission', 'colorado', 'conservation', 'prod']
+    stop_specific = ['wattenberg', 'yes', 'acre', 'number', 'mum', 'nwse', 'swne', 'lease', 'rule', 'drilling', 'permit', 'application', 'form', 'felfwl', 'fnlfsl', 'fnl', 'fsl', 'page', 'file', 'date', 'state', 'surface', 'location', 'oil', 'operator', 'commission', 'colorado', 'conservation', 'prod', 'formation', 'denver', 'ogcc', 'cogcc']
 
     NLTKstopwords = sw.words('english')
 

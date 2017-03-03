@@ -1,14 +1,16 @@
 import modules.ocr_input_processing as oip
 import modules.image_ocr as io
 import modules.main_corpus_processing as mcp
-# import modules.sub_corpus_processing as scp
 
 import os
 import random
 import numpy as np
-import pandas as import pd
+import pandas as pd
 import subprocess
 from collections import Counter, defaultdict
+from itertools import chain
+import dbfread
+import utm
 
 import logging
 import matplotlib.pyplot as plt
@@ -110,6 +112,12 @@ def inspect_classification(bow_corpus, model, txt_paths):
         except:
             pass
 
+    doc_count = {}
+    for topic, docs in top_topics_dict.items():
+        doc_count[topic] = len(docs)
+
+    print 'Documents per Topic: {}'.format(doc_count)
+
     return top_topics_dict, files_by_topic_defdict
 
 
@@ -135,6 +143,16 @@ def display_docs(files_by_topic_defdict, topic_number, low=0, high=30):
         subprocess.call(['open', path])
 
 
+def display_masked_docs(topic_masks, topic):
+    '''
+    INPUT: masked docs per topic
+    OUTPUT: None
+    TASK: check masked topics before blocking them from further processing
+    '''
+    for path in np.array(tif_paths)[topic_masks[topic]]:
+        subprocess.call(['open', path])
+
+
 def topic_token_dist(model, dictionary, num_words=10):
     '''
     INPUT: trained LDA model, dictionary, top num_words to include for each topic.
@@ -154,6 +172,21 @@ def topic_token_dist(model, dictionary, num_words=10):
     df = pd.DataFrame({'topic': np.array(topic_lst).ravel(), 'token': np.array(tok_lst).ravel(), 'token_id': tokid_lst, 'token_prob': np.array(prob_lst).ravel()})
 
     return df
+
+
+def plot_topic_token_dist():
+    df_50 = topic_token_dist(lda, dictionary, num_words=50)
+    p = sns.swarmplot(data=df_50, x='topic', y='token_prob', size=6)
+    p.set(ylabel='', xlabel='')
+    plt.text(-1.3, 0.06, 'Token Probability', va='center', rotation='vertical', size=14)
+    plt.text(2.5, -0.037, 'Topic', ha='center', size=14)
+
+    df_10 = topic_token_dist(lda, dictionary)
+    grid = sns.FacetGrid(data=df_10, row='topic', hue='topic', sharey=False, size=1.75, aspect=2)
+    grid.map(sns.barplot, 'token_prob', 'token')
+    grid.set(ylabel='', xlabel='')
+    plt.text(-0.07, -28, 'Tokens', va='center', rotation='vertical', size=14)
+    plt.text(0.07, 13, 'Token Probability', ha='center', size=14)
 
 
 def docs_topic_mask(model, top_topics_dict):
@@ -194,7 +227,6 @@ def plot_doc_topics(doc_topics):
     plt.xlabel('Topic Number', fontsize=14)
     plt.title('Probability of Topic for each Document', fontsize=14)
     plt.show()
-    plt.savefig('figures/document_topics_heatmap.png')
 
 
 def test_num_topics(bow_corpus, dictionary, n_topics_lst, chunksize, workers):
@@ -215,9 +247,9 @@ def test_num_topics(bow_corpus, dictionary, n_topics_lst, chunksize, workers):
 def pca_doc_topics(bow_corpus, lda_models):
     doc_topics_lst, X_lst = [], []
     for mod in lda_models:
-            doc_topics = doc_topics_matrix(bow_corpus, mod)
-            doc_topics_lst.append(doc_topics)
-            X_lst.append(PCA(n_components=2).fit_transform(doc_topics))
+        doc_topics = doc_topics_matrix(bow_corpus, mod)
+        doc_topics_lst.append(doc_topics)
+        X_lst.append(PCA(n_components=2).fit_transform(doc_topics))
 
     return doc_topics_lst, X_lst
 
@@ -263,9 +295,11 @@ if __name__ == '__main__':
     # store counts and paths for files of interest
     tif_cnt, xml_cnt, txt_cnt, misc_cnt, tif_paths, xml_paths, txt_paths, misc_paths = oip.doc_cnts_paths(data_path)
 
+    # tokens appearing in less than 15% of documents not to be included
     no_below = int(txt_cnt * 0.15)
 
-    tokenized_corpus, dictionary, bow_corpus, lda = train_lda(paths=txt_paths, dict_no_below=no_below, cores=4, n_topics=7)
+    # from inspection (LDAvis, topic-token distribution plots), 6 topics separate well the data
+    tokenized_corpus, dictionary, bow_corpus, lda = train_lda(paths=txt_paths, dict_no_below=no_below, cores=4, n_topics=6)
 
     # find index of documents to txt_paths that contribute no tokens to bow_corpus
     file_removal_idx = inspect_bow_corpus(bow_corpus)
@@ -274,47 +308,104 @@ if __name__ == '__main__':
     # # inspect bow_corpus for documents with no tokens and return paths excluding documents with no tokens in bow_corpus
     # tif_cnt, xml_cnt, txt_cnt, misc_cnt, tif_paths, xml_paths, txt_paths, misc_paths = remove_poor_quality_ocr(file_removal_idx)
 
-    # ******
     # saving corpus, dictionary, model for LDAvis inspection (use a jupyter-notebook)
-    corpora.MmCorpus.serialize('src/lda_mod/well_docs.mm', bow_corpus)
-    dictionary.save('src/lda_mod/well_docs.dict')
-    lda.save('src/lda_mod/well_docs.model')
-    # ******
+    corpora.MmCorpus.serialize('src/LDAvis_choose_n_topics/bow_corpus_6.mm', bow_corpus)
+    dictionary.save('src/LDAvis_choose_n_topics/dict_6.dict')
+    lda.save('src/LDAvis_choose_n_topics/lda_6.model')
 
-    # ******
-    # visual inspection of the classification using inspect_classification, count_docs_per_topic, display_docs functions
+    # inspection of the classification
     top_topics_dict, files_by_topic_defdict = inspect_classification(bow_corpus, lda, txt_paths)
-
-    count_docs_per_topic(top_topics_dict)
 
     lda.show_topics(-1, formatted=False)
 
-    display_docs(files_by_topic_defdict, 0, high=218)
+    display_docs(files_by_topic_defdict, 0, high=200)
+
+    # calculate token variance inside topics using all tokens in dictionary
+    df = topic_token_dist(model=lda, dictionary=dictionary, num_words=len(dictionary.values()))
+    x, y = [], []
+    for t in range(lda.num_topics):
+        x.append(t)
+        y.append(np.var(df[df['topic'] == t]['token_prob']))
+
+    # calculate mean token_id per topic to identify mean of known topic labels, such as permits
+    token_dist_df = topic_token_dist(model=lda, dictionary=dictionary, num_words=10)
+    m = []
+    for t in range(lda.num_topics):
+        m.append(np.mean(token_dist_df[token_dist_df['topic'] == t]['token_id']))
+
+    df_top_var = pd.DataFrame({'topic': x, 'token_prob_var': y, 'top10_token_id_mean': m})
+
+    # use token_prob_var < 0.00015 to find most consistent topics in terms of document content. Use topic visual inspection to connect  top10_token_id_mean with topic label.
+    df_top_var['topic_label'] = ''
+    df_top_var.loc[0, 'topic_label'] = 'completions'
+    df_top_var.loc[5, 'topic_label'] = 'permits'
+
+    p = sns.barplot(x, y)
+    plt.text(-1.3, 0.00015, 'Token Probability Variance', va='center', rotation='vertical', size=14)
+    plt.text(2.5, -0.000025, 'Topic', ha='center', size=14)
+
+
+    # topic_id distribution per topic
+    b = sns.boxplot(data=token_dist_df, y='topic', x='token_id', orient='h')
+    b.axes.set_title('Distribution of Token ID per Topic',fontsize=16)
+    b.set_xlabel('Token ID',fontsize=14)
+    b.set_ylabel('Topic',fontsize=14)
+
+    # if topic variance is under 0.00015, set document paths as classified and exclude from further modeling
+    classified_topic = []
+    for t in range(lda.num_topics):
+        if y[t] < 0.00015:
+            classified_topic.append(t)
+
+    classified_txt_paths = defaultdict(list)
+    for t in classified_topic:
+        classified_txt_paths[t].append(np.array(txt_paths)[topic_masks[t]])
+
+    to_ignore_txt_paths = []
+    for t in classified_topic:
+        to_ignore_txt_paths = list(chain.from_iterable([x[0] for x in classified_txt_paths.values()]))
+
+    top_num = []
+    path_lst = []
+    county_lst = []
+    for t, v in classified_txt_paths.items():
+        top_num.append(np.repeat(t, len(v[0])))
+        path_lst.append(v[0])
+        for lst in v:
+            for path in lst:
+                county_lst.append(path.rsplit('/', 1)[-1].rsplit('-')[1])
+
+    topic_lst = [item for sublist in top_num for item in sublist]
+    path_lst = [item for sublist in path_lst for item in sublist]
+
+    df_classified = pd.DataFrame({'topic_num': topic_lst, 'txt_path': path_lst, 'county_code': county_lst})
+    df_classified['FIPS_code'] = '0500000US08123'
+
+    # API numbers for all files in train set
+    path_api = []
+        for path in txt_paths:
+            path_api.append((path, path.rsplit('/', 1)[-1].rsplit('-', 3)[0]))
+
+    unique_api = set(np.array(path_api)[:,1])
+
+    # COGCC well location data by API number
+    dbf = dbfread.DBF('/Users/jpc/Documents/data_science_inmersive/document_image_classification/data/WELLS_SHP/Wells.dbf')
+    frame = pd.DataFrame(iter(dbf))
+
+    weld_county_wells = frame[frame['API_Label'].isin(unique_api)]
+
+    wells_utms = weld_county_wells.loc[:, ['API_Label', 'Utm_X', 'Utm_Y']]
+
+    lat_long = []
+    for i in range(wells_utms.shape[0]):
+        lat_long.append(utm.to_latlon(wells_utms.iloc[i,1], wells_utms.iloc[i,2], 13, 'S'))
+    wells_utms['latitude'], wells_utms['longitude'] = zip(*lat_long)
+
+    wells_utms.to_csv('data/wells_lat_long.csv')
+
+
+
     # ******
-
-
-
-
-    df_10 = topic_token_dist(lda, dictionary)
-    grid = sns.FacetGrid(data=df_10, row='topic', hue='topic', sharey=False, size=1.75, aspect=2)
-    grid.map(sns.barplot, 'token_prob', 'token')
-    grid.set(ylabel='', xlabel='')
-    plt.text(-0.11, -33.5, 'Tokens', va='center', rotation='vertical', size=14)
-    plt.text(0.10, 13, 'Token Probability', ha='center', size=14)
-
-    df_50 = topic_token_dist(lda, dictionary, num_words=50)
-    p = sns.swarmplot(data=df_50, x='topic', y='token_prob', size=6)
-    p.set(ylabel='', xlabel='')
-    plt.text(-1.3, 0.075, 'Token Probability', va='center', rotation='vertical', size=14)
-    plt.text(3, -0.075, 'Topic', ha='center', size=14)
-
-
-
-
-
-
-
-
     # tokenized_corpus = mcp.parallel_corpus_lemm_tokenization(txt_paths)
     #
     # dictionary, bow_corpus = mcp.bow_and_dict(tokenized_corpus, no_below=150)
