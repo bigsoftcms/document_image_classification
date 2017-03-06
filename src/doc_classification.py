@@ -25,11 +25,12 @@ from sklearn.metrics.pairwise import cosine_similarity, pairwise_distances_argmi
 from sklearn.decomposition import TruncatedSVD
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import Normalizer
+from sklearn import preprocessing
 from sklearn.cluster import KMeans, MiniBatchKMeans
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score, silhouette_samples
 
-from gensim import corpora, models, similarities
+from gensim import corpora, models
 
 
 random.seed(1)
@@ -121,6 +122,20 @@ def inspect_classification(bow_corpus, model, txt_paths):
     return top_topics_dict, files_by_topic_defdict
 
 
+def plot_topic_doc_dist(model, bow_corpus, doc_number):
+    '''
+    INPUT: trained model, bow_corpus, index within bow_corpus of document of interest.
+    OUTPUT: None
+    TASK: produce barplot showing distribution of topics assigned by model to document of interest. y-axis is probability of topic given the document.
+    '''
+    topics, probas = zip(*np.array(model[bow_corpus[doc_number]]))
+
+    sns.barplot(topics, probas)
+    plt.ylabel('Topic Probability', size=14)
+    plt.xlabel('Topic', size=14)
+    plt.title('Probability of Topic within the Document', size=16)
+
+
 def count_docs_per_topic(top_topics_dict):
     '''
     INPUT: top_topics_dict, which is a dict of highest probability of a topic for a document.
@@ -174,19 +189,21 @@ def topic_token_dist(model, dictionary, num_words=10):
     return df
 
 
-def plot_topic_token_dist():
-    df_50 = topic_token_dist(lda, dictionary, num_words=50)
+def plot_topic_token_dist(model, dictionary):
+    df_50 = topic_token_dist(model, dictionary, num_words=50)
     p = sns.swarmplot(data=df_50, x='topic', y='token_prob', size=6)
     p.set(ylabel='', xlabel='')
-    plt.text(-1.3, 0.06, 'Token Probability', va='center', rotation='vertical', size=14)
+    plt.text(-1.3, 0.06, 'Token Relative Frequency', va='center', rotation='vertical', size=14)
     plt.text(2.5, -0.037, 'Topic', ha='center', size=14)
 
-    df_10 = topic_token_dist(lda, dictionary)
+    df_10 = topic_token_dist(model, dictionary, num_words=5)
     grid = sns.FacetGrid(data=df_10, row='topic', hue='topic', sharey=False, size=1.75, aspect=2)
     grid.map(sns.barplot, 'token_prob', 'token')
     grid.set(ylabel='', xlabel='')
-    plt.text(-0.07, -28, 'Tokens', va='center', rotation='vertical', size=14)
-    plt.text(0.07, 13, 'Token Probability', ha='center', size=14)
+    plt.text(-0.07, -14, 'Tokens', va='center', rotation='vertical', size=14)
+    plt.text(0.07, 6.6, 'Token Relative Frequency', ha='center', size=14)
+    plt.xticks(rotation=45)
+
 
 
 def docs_topic_mask(model, top_topics_dict):
@@ -316,9 +333,34 @@ if __name__ == '__main__':
     # inspection of the classification
     top_topics_dict, files_by_topic_defdict = inspect_classification(bow_corpus, lda, txt_paths)
 
-    lda.show_topics(-1, formatted=False)
+    # lda.show_topics(-1, formatted=False)
 
     # display_docs(files_by_topic_defdict, 0, high=200)
+
+
+    # ******
+    # PCA Analysis
+    df_tokens_topic = topic_token_dist(model=lda, dictionary=dictionary, num_words=len(dictionary.values()))
+    x = []
+    for t in range(lda.num_topics):
+        x.append(df_tokens_topic[df_tokens_topic['topic'] == t]['token_prob'])
+    X = np.array(x)
+
+    Xscaled = preprocessing.scale(X)
+    pca_scaled = PCA(n_components=2).fit_transform(Xscaled)
+
+def plot_pca(pca):
+    plt.plot(pca[0,0],pca[0,1], 'o', markersize=10, color='b', alpha=0.5, label='topic0')
+    plt.plot(pca[1,0],pca[1,1], '^', markersize=10, color='g', alpha=0.5, label='topic1')
+    plt.plot(pca[2,0],pca[2,1], 'p', markersize=10, color='r', alpha=0.5, label='topic2')
+    plt.plot(pca[3,0],pca[3,1], 'D', markersize=10, color='c', alpha=0.5, label='topic3')
+    plt.plot(pca[4,0],pca[4,1], 'h', markersize=10, color='m', alpha=0.5, label='topic4')
+    plt.plot(pca[5,0],pca[5,1], 's', markersize=10, color='k', alpha=0.5, label='topic5')
+    # plt.plot(pca[6,0],pca[6,1], '*', markersize=7, color='y', alpha=0.5, label='topic6')
+    plt.legend()
+
+
+
 
     # # ******
     # # calculate token variance inside topics using all tokens in dictionary
@@ -352,11 +394,13 @@ if __name__ == '__main__':
     # b.set_xlabel('Token ID',fontsize=14)
     # b.set_ylabel('Topic',fontsize=14)
     #
-    # # if topic variance is under 0.00015, set document paths as classified and exclude from further modeling
+    # # if topic variance is under 0.00005, set document paths as classified and exclude from further processing
     # classified_topic = []
     # for t in range(lda.num_topics):
-    #     if y[t] < 0.00015:
+    #     if y[t] < 0.00005:
     #         classified_topic.append(t)
+    #
+    # topic_masks = docs_topic_mask(model=lda, top_topics_dict=top_topics_dict)
     #
     # classified_txt_paths = defaultdict(list)
     # for t in classified_topic:
@@ -368,42 +412,61 @@ if __name__ == '__main__':
     #
     # top_num = []
     # path_lst = []
-    # county_lst = []
     # for t, v in classified_txt_paths.items():
     #     top_num.append(np.repeat(t, len(v[0])))
     #     path_lst.append(v[0])
-    #     for lst in v:
-    #         for path in lst:
-    #             county_lst.append(path.rsplit('/', 1)[-1].rsplit('-')[1])
     #
     # topic_lst = [item for sublist in top_num for item in sublist]
     # path_lst = [item for sublist in path_lst for item in sublist]
     # api_lst = [path.rsplit('/', 1)[-1].rsplit('-', 3)[0] for path in path_lst]
     #
-    # df_classified = pd.DataFrame({'topic_num': topic_lst, 'txt_path': path_lst, 'county_code': county_lst, 'well_api': api_lst})
+    # df_classified = pd.DataFrame({'topic_num': topic_lst, 'txt_path': path_lst, 'api_label': api_lst})
+    #
+    # df_classified_dummies = pd.concat([df_classified, pd.get_dummies(df_classified['topic_num'])], axis=1)
+    #
+    # df_classified_dummies.to_csv('data/wells_classified.csv')
     #
     # # API numbers for all files in train set
     # path_api = []
-    #     for path in txt_paths:
-    #         path_api.append((path, path.rsplit('/', 1)[-1].rsplit('-', 3)[0]))
+    # for path in txt_paths:
+    #     path_api.append((path, path.rsplit('/', 1)[-1].rsplit('-', 3)[0]))
     #
     # unique_api = set(np.array(path_api)[:,1])
     #
-    # # COGCC well location data by API number
+    # # COGCC well location and information data by API number
     # dbf = dbfread.DBF('/Users/jpc/Documents/data_science_inmersive/document_image_classification/data/WELLS_SHP/Wells.dbf')
     # frame = pd.DataFrame(iter(dbf))
     # frame.to_csv('data/cogcc_well_info.csv')
     #
-    # weld_county_wells = frame[frame['API_Label'].isin(unique_api)]
+    # processed_wells = frame[frame['API_Label'].isin(unique_api)]
     #
-    # wells_utms = weld_county_wells.loc[:, ['API_Label', 'Utm_X', 'Utm_Y']]
+    # wells_utms_latlon = processed_wells.loc[:, ['API_Label', 'Utm_X', 'Utm_Y', 'Max_MD', 'Max_TVD', 'Operator', 'Spud_Date', 'Well_Title']]
+    #
     #
     # lat_long = []
     # for i in range(wells_utms.shape[0]):
-    #     lat_long.append(utm.to_latlon(wells_utms.iloc[i,1], wells_utms.iloc[i,2], 13, 'S'))
-    # wells_utms['latitude'], wells_utms['longitude'] = zip(*lat_long)
+    #     lat_long.append(utm.to_latlon(wells_utms.iloc[i,1], wells_utms_latlon.iloc[i,2], 13, 'S'))
+    # wells_utms_latlon['latitude'], wells_utms_latlon['longitude'] = zip(*lat_long)
     #
-    # wells_utms.to_csv('data/wells_lat_long.csv')
+    # lower_cols = []
+    # for col in wells_utms_latlon.columns:
+    #     lower_cols.append(col.lower())
+    # wells_utms_latlon.columns = lower_cols
+    #
+    # wells_classified = wells_utms_latlon.merge(df_classified_dummies, on='api_label')
+    #
+    # def label_topic(row):
+    #     if row['topic_num'] == 5 :
+    #         return 'permit'
+    #     return 'no classified documents'
+    #
+    # wells_classified['topic_name'] = wells_classified.apply(lambda row: label_topic(row), axis=1)
+    #
+    # wells_aggregated = wells_classified.groupby(['api_label', 'utm_x', 'utm_y', 'max_md', 'max_tvd', 'operator', 'well_title', 'latitude', 'longitude', 'topic_num', 'topic_name']).sum().reset_index()
+    #
+    # wells_aggregated = pd.merge(wells_aggregated, wells_utms_latlon.loc[:, ['api_label', 'spud_date']], how='inner', on='api_label')
+    #
+    # wells_aggregated.to_csv('data/wells_aggregated.csv')
     # # ******
 
 
