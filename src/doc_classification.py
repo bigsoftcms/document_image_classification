@@ -190,20 +190,42 @@ def topic_token_dist(model, dictionary, num_words=10):
 
 
 def plot_topic_token_dist(model, dictionary):
-    df_50 = topic_token_dist(model, dictionary, num_words=50)
-    p = sns.swarmplot(data=df_50, x='topic', y='token_prob', size=6)
-    p.set(ylabel='', xlabel='')
-    plt.text(-1.3, 0.06, 'Token Relative Frequency', va='center', rotation='vertical', size=14)
-    plt.text(2.5, -0.037, 'Topic', ha='center', size=14)
-
-    df_10 = topic_token_dist(model, dictionary, num_words=5)
-    grid = sns.FacetGrid(data=df_10, row='topic', hue='topic', sharey=False, size=1.75, aspect=2)
+    '''
+    INPUT: trained model, dictionary
+    OUTPUT: None
+    TASK: creates 3 plots - (1) topic vs. toekn relative freq, (2) topic vs. token variance per topic, (3) token relative freq vs. tokens by topic
+    '''
+    df_5 = topic_token_dist(model, dictionary, num_words=5)
+    grid = sns.FacetGrid(data=df_5, row='topic', hue='topic', sharey=False, size=1.75, aspect=2)
     grid.map(sns.barplot, 'token_prob', 'token')
     grid.set(ylabel='', xlabel='')
     plt.text(-0.07, -14, 'Tokens', va='center', rotation='vertical', size=14)
     plt.text(0.07, 6.6, 'Token Relative Frequency', ha='center', size=14)
     plt.xticks(rotation=45)
 
+    df_10 = topic_token_dist(model, dictionary, num_words=10)
+    fig2 = plt.figure()
+    fig2 = sns.boxplot(data=df_10, y='topic', x='token_id', orient='h')
+    fig2.axes.set_title('Distribution of Token ID per Topic',fontsize=16)
+    fig2.set_xlabel('Token ID',fontsize=14)
+    fig2.set_ylabel('Topic',fontsize=14)
+
+    df_50 = topic_token_dist(model, dictionary, num_words=50)
+    fig3 = plt.figure()
+    fig3 = sns.swarmplot(data=df_50, x='topic', y='token_prob', size=6)
+    fig3.set(ylabel='', xlabel='')
+    fig3.text(-1.3, 0.06, 'Token Relative Frequency', va='center', rotation='vertical', size=14)
+    fig3.text(2.5, -0.037, 'Topic', ha='center', size=14)
+
+    df_all = topic_token_dist(model, dictionary, num_words=len(dictionary.values()))
+    x, y = [], []
+    for t in range(model.num_topics):
+        x.append(t)
+        y.append(np.var(df_all[df_all['topic'] == t]['token_prob']))
+    fig4 = plt.figure()
+    fig4 = sns.barplot(x, y)
+    fig4.text(-1.3, 0.00015, 'Token Variance per Topic', va='center', rotation='vertical', size=14)
+    fig4.text(2.5, -0.000025, 'Topic', ha='center', size=14)
 
 
 def docs_topic_mask(model, top_topics_dict):
@@ -362,112 +384,116 @@ def plot_pca(pca):
 
 
 
-    # # ******
-    # # calculate token variance inside topics using all tokens in dictionary
-    # df = topic_token_dist(model=lda, dictionary=dictionary, num_words=len(dictionary.values()))
-    # x, y = [], []
-    # for t in range(lda.num_topics):
-    #     x.append(t)
-    #     y.append(np.var(df[df['topic'] == t]['token_prob']))
-    #
-    # # calculate mean token_id per topic to identify mean of known topic labels, such as permits
-    # token_dist_df = topic_token_dist(model=lda, dictionary=dictionary, num_words=10)
-    # m = []
-    # for t in range(lda.num_topics):
-    #     m.append(np.mean(token_dist_df[token_dist_df['topic'] == t]['token_id']))
-    #
-    # df_top_var = pd.DataFrame({'topic': x, 'token_prob_var': y, 'top10_token_id_mean': m})
-    #
-    # # use token_prob_var < 0.00015 to find most consistent topics in terms of document content. Use topic visual inspection to connect  top10_token_id_mean with topic label.
-    # df_top_var['topic_label'] = ''
-    # df_top_var.loc[0, 'topic_label'] = 'completions'
-    # df_top_var.loc[5, 'topic_label'] = 'permits'
-    #
-    # p = sns.barplot(x, y)
-    # plt.text(-1.3, 0.00015, 'Token Probability Variance', va='center', rotation='vertical', size=14)
-    # plt.text(2.5, -0.000025, 'Topic', ha='center', size=14)
-    #
-    #
-    # # topic_id distribution per topic
-    # b = sns.boxplot(data=token_dist_df, y='topic', x='token_id', orient='h')
-    # b.axes.set_title('Distribution of Token ID per Topic',fontsize=16)
-    # b.set_xlabel('Token ID',fontsize=14)
-    # b.set_ylabel('Topic',fontsize=14)
-    #
-    # # if topic variance is under 0.00005, set document paths as classified and exclude from further processing
-    # classified_topic = []
-    # for t in range(lda.num_topics):
-    #     if y[t] < 0.00005:
-    #         classified_topic.append(t)
-    #
-    # topic_masks = docs_topic_mask(model=lda, top_topics_dict=top_topics_dict)
-    #
-    # classified_txt_paths = defaultdict(list)
-    # for t in classified_topic:
-    #     classified_txt_paths[t].append(np.array(txt_paths)[topic_masks[t]])
-    #
-    # to_ignore_txt_paths = []
-    # for t in classified_topic:
-    #     to_ignore_txt_paths = list(chain.from_iterable([x[0] for x in classified_txt_paths.values()]))
-    #
-    # top_num = []
-    # path_lst = []
-    # for t, v in classified_txt_paths.items():
-    #     top_num.append(np.repeat(t, len(v[0])))
-    #     path_lst.append(v[0])
-    #
-    # topic_lst = [item for sublist in top_num for item in sublist]
-    # path_lst = [item for sublist in path_lst for item in sublist]
-    # api_lst = [path.rsplit('/', 1)[-1].rsplit('-', 3)[0] for path in path_lst]
-    #
-    # df_classified = pd.DataFrame({'topic_num': topic_lst, 'txt_path': path_lst, 'api_label': api_lst})
-    #
-    # df_classified_dummies = pd.concat([df_classified, pd.get_dummies(df_classified['topic_num'])], axis=1)
-    #
-    # df_classified_dummies.to_csv('data/wells_classified.csv')
-    #
-    # # API numbers for all files in train set
-    # path_api = []
-    # for path in txt_paths:
-    #     path_api.append((path, path.rsplit('/', 1)[-1].rsplit('-', 3)[0]))
-    #
-    # unique_api = set(np.array(path_api)[:,1])
-    #
-    # # COGCC well location and information data by API number
-    # dbf = dbfread.DBF('/Users/jpc/Documents/data_science_inmersive/document_image_classification/data/WELLS_SHP/Wells.dbf')
-    # frame = pd.DataFrame(iter(dbf))
-    # frame.to_csv('data/cogcc_well_info.csv')
-    #
-    # processed_wells = frame[frame['API_Label'].isin(unique_api)]
-    #
-    # wells_utms_latlon = processed_wells.loc[:, ['API_Label', 'Utm_X', 'Utm_Y', 'Max_MD', 'Max_TVD', 'Operator', 'Spud_Date', 'Well_Title']]
-    #
-    #
-    # lat_long = []
-    # for i in range(wells_utms.shape[0]):
-    #     lat_long.append(utm.to_latlon(wells_utms.iloc[i,1], wells_utms_latlon.iloc[i,2], 13, 'S'))
-    # wells_utms_latlon['latitude'], wells_utms_latlon['longitude'] = zip(*lat_long)
-    #
-    # lower_cols = []
-    # for col in wells_utms_latlon.columns:
-    #     lower_cols.append(col.lower())
-    # wells_utms_latlon.columns = lower_cols
-    #
-    # wells_classified = wells_utms_latlon.merge(df_classified_dummies, on='api_label')
-    #
-    # def label_topic(row):
-    #     if row['topic_num'] == 5 :
-    #         return 'permit'
-    #     return 'no classified documents'
-    #
-    # wells_classified['topic_name'] = wells_classified.apply(lambda row: label_topic(row), axis=1)
-    #
-    # wells_aggregated = wells_classified.groupby(['api_label', 'utm_x', 'utm_y', 'max_md', 'max_tvd', 'operator', 'well_title', 'latitude', 'longitude', 'topic_num', 'topic_name']).sum().reset_index()
-    #
-    # wells_aggregated = pd.merge(wells_aggregated, wells_utms_latlon.loc[:, ['api_label', 'spud_date']], how='inner', on='api_label')
-    #
-    # wells_aggregated.to_csv('data/wells_aggregated.csv')
-    # # ******
+    # ******
+    # calculate mean token_id per topic to identify mean of known topic labels, such as permits
+    token_dist_df = topic_token_dist(model=lda, dictionary=dictionary, num_words=10)
+    m = []
+    for t in range(lda.num_topics):
+        m.append(np.mean(token_dist_df[token_dist_df['topic'] == t]['token_id']))
+
+    df_top_var = pd.DataFrame({'topic': x, 'token_prob_var': y, 'top10_token_id_mean': m})
+
+    # use token_prob_var < 0.00015 to find most consistent topics in terms of document content. Use topic visual inspection to connect  top10_token_id_mean with topic label.
+    df_top_var['topic_label'] = ''
+    df_top_var.loc[0, 'topic_label'] = 'completions'
+    df_top_var.loc[5, 'topic_label'] = 'permits'
+
+
+
+
+    # topic_id distribution per topic
+    b = sns.boxplot(data=token_dist_df, y='topic', x='token_id', orient='h')
+    b.axes.set_title('Distribution of Token ID per Topic',fontsize=16)
+    b.set_xlabel('Token ID',fontsize=14)
+    b.set_ylabel('Topic',fontsize=14)
+
+    # if topic variance is under 0.00005, set document paths as classified and exclude from further processing
+    classified_topic = []
+    for t in range(lda.num_topics):
+        if y[t] < 0.00005:
+            classified_topic.append(t)
+
+    topic_masks = docs_topic_mask(model=lda, top_topics_dict=top_topics_dict)
+
+    classified_txt_paths = defaultdict(list)
+    for t in classified_topic:
+        classified_txt_paths[t].append(np.array(txt_paths)[topic_masks[t]])
+
+    to_ignore_txt_paths = []
+    for t in classified_topic:
+        to_ignore_txt_paths = list(chain.from_iterable([x[0] for x in classified_txt_paths.values()]))
+
+    top_num = []
+    path_lst = []
+    for t, v in classified_txt_paths.items():
+        top_num.append(np.repeat(t, len(v[0])))
+        path_lst.append(v[0])
+
+    topic_lst = [item for sublist in top_num for item in sublist]
+    path_lst = [item for sublist in path_lst for item in sublist]
+    api_lst = [path.rsplit('/', 1)[-1].rsplit('-', 3)[0] for path in path_lst]
+
+    df_classified = pd.DataFrame({'topic_num': topic_lst, 'txt_path': path_lst, 'api_label': api_lst})
+
+    df_classified_dummies = pd.concat([df_classified, pd.get_dummies(df_classified['topic_num'])], axis=1)
+
+    df_classified_dummies.to_csv('data/wells_classified.csv')
+
+    # API numbers for all files in train set
+def load_cogcc_well_info(cogcc_path):
+    '''
+    INPUT: path to cogcc .dbf file containing well info data
+    OUPUT: data frame of cogcc well info data
+    TASK: uses dbfread package to read .dbf and obtain a data frame
+    '''
+    dbf = dbfread.DBF(cogcc_path)
+    frame = pd.DataFrame(iter(dbf))
+    frame.to_csv('data/cogcc_well_info.csv')
+
+    return frame
+
+
+def cogcc_well_info(txt_paths):
+    path_api = []
+    for path in txt_paths:
+        path_api.append((path, path.rsplit('/', 1)[-1].rsplit('-', 3)[0]))
+
+    unique_api = set(np.array(path_api)[:,1])
+
+    # COGCC well location and information data by API number
+    dbf = dbfread.DBF('/Users/jpc/Documents/data_science_inmersive/document_image_classification/data/WELLS_SHP/Wells.dbf')
+    frame = pd.DataFrame(iter(dbf))
+    frame.to_csv('data/cogcc_well_info.csv')
+
+    processed_wells = frame[frame['API_Label'].isin(unique_api)]
+
+    wells_utms_latlon = processed_wells.loc[:, ['API_Label', 'Utm_X', 'Utm_Y', 'Max_MD', 'Max_TVD', 'Operator', 'Spud_Date', 'Well_Title']]
+
+    lat_long = []
+    for i in range(wells_utms.shape[0]):
+        lat_long.append(utm.to_latlon(wells_utms.iloc[i,1], wells_utms_latlon.iloc[i,2], 13, 'S'))
+    wells_utms_latlon['latitude'], wells_utms_latlon['longitude'] = zip(*lat_long)
+
+    lower_cols = []
+    for col in wells_utms_latlon.columns:
+        lower_cols.append(col.lower())
+    wells_utms_latlon.columns = lower_cols
+
+    wells_classified = wells_utms_latlon.merge(df_classified_dummies, on='api_label')
+
+    def label_topic(row):
+        if row['topic_num'] == 5 :
+            return 'permit'
+        return 'no classified documents'
+
+    wells_classified['topic_name'] = wells_classified.apply(lambda row: label_topic(row), axis=1)
+
+    wells_aggregated = wells_classified.groupby(['api_label', 'utm_x', 'utm_y', 'max_md', 'max_tvd', 'operator', 'well_title', 'latitude', 'longitude', 'topic_num', 'topic_name']).sum().reset_index()
+
+    wells_aggregated = pd.merge(wells_aggregated, wells_utms_latlon.loc[:, ['api_label', 'spud_date']], how='inner', on='api_label')
+
+    wells_aggregated.to_csv('data/wells_aggregated.csv')
+    # ******
 
 
 
@@ -727,21 +753,6 @@ def plot_pca(pca):
     # n_topics = lda.num_topics
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ##################################################
     # # Kmeans approach
     # logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -799,8 +810,6 @@ def plot_pca(pca):
     #
     # processed_corpus = [[token for token in text if frequency[token] > 1] for text in texts]
     #
-
-
 
 
     # generate tfidf matrix and vectorizer
