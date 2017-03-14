@@ -54,6 +54,24 @@ def train_lda(paths, dict_no_below, cores, n_topics):
     return tokenized_corpus, dictionary, bow_corpus, lda
 
 
+def train_lda_spacy_pos(paths, dict_no_below, cores, n_topics):
+    '''
+    INPUT: paths to .txt files to train model. dict_no_below - remove token that is only present in less than the dict_no_below number of docs supplied. cores - how many are available for processing. n_topics determined to train the model.
+    OUTPUT: (4) tokenized_corpus, dictionary, bow_corpus, LDA model
+    '''
+    tokenized_corpus = mcp.parallel_corpus_lemm_tokenization_spacy_pos(paths)
+
+    # no_below = 500 for a first LDA pass to filter out low token count documents, such as maps, photos, or poor quality scans
+    dictionary, bow_corpus = mcp.bow_and_dict(tokenized_corpus, no_below=dict_no_below, no_above=0.9)
+
+    chunk = len(paths)/cores
+
+    # train the LDA model
+    lda = models.LdaMulticore(bow_corpus, id2word=dictionary, num_topics=n_topics, passes=30, chunksize=chunk, random_state=1, workers=cores)
+
+    return tokenized_corpus, dictionary, bow_corpus, lda
+
+
 def remove_poor_quality_ocr(file_removal_idx):
     '''
     INPUT: file_removal_idx - index to .txt/.tif paths to be removed
@@ -193,7 +211,7 @@ def plot_topic_token_dist(model, dictionary):
     '''
     INPUT: trained model, dictionary
     OUTPUT: None
-    TASK: creates 3 plots - (1) topic vs. toekn relative freq, (2) topic vs. token variance per topic, (3) token relative freq vs. tokens by topic
+    TASK: creates 3 plots - (1) topic vs. token relative freq, (2) topic vs. token variance per topic, (3) token relative freq vs. tokens by topic
     '''
     df_5 = topic_token_dist(model, dictionary, num_words=5)
     grid = sns.FacetGrid(data=df_5, row='topic', hue='topic', sharey=False, size=1.75, aspect=2)
@@ -334,11 +352,134 @@ if __name__ == '__main__':
     # store counts and paths for files of interest
     tif_cnt, xml_cnt, txt_cnt, misc_cnt, tif_paths, xml_paths, txt_paths, misc_paths = oip.doc_cnts_paths(data_path)
 
+    # filter out documents by keyword corresponding to their category
+    tokenized_corpus = mcp.parallel_corpus_lemm_tokenization(txt_paths)
+
+    clearance = []
+    for idx, doc in enumerate(tokenized_corpus):
+        if 'clearance' in doc:
+            clearance.append(idx)
+
+    txt_paths_remain = []
+    for idx, path in enumerate(txt_paths):
+        if idx not in clearance:
+            txt_paths_remain.append(path)
+
+    tokenized_corpus_1 = mcp.parallel_corpus_lemm_tokenization(txt_paths_remain)
+
+    reclamation = []
+    for idx, doc in enumerate(tokenized_corpus_1):
+        if 'reclamation' in doc and 'soil' in doc and 'plant' in doc and 'community' in doc:
+            reclamation.append(idx)
+
+    txt_paths_remain_1 = []
+    for idx, path in enumerate(txt_paths_remain):
+        if idx not in reclamation:
+            txt_paths_remain_1.append(path)
+
+    tokenized_corpus_2 = mcp.parallel_corpus_lemm_tokenization(txt_paths_remain_1)
+
+    surveys = []
+    for idx, doc in enumerate(tokenized_corpus_2):
+        if 'target' in doc:
+            surveys.append(idx)
+
+    txt_paths_remain_2 = []
+    for idx, path in enumerate(txt_paths_remain_1):
+        if idx not in surveys:
+            txt_paths_remain_2.append(path)
+
+    tokenized_corpus_3 = mcp.parallel_corpus_lemm_tokenization(txt_paths_remain_2)
+
+    completion = []
+    for idx, doc in enumerate(tokenized_corpus_3):
+        if 'spud' in doc and 'completion' in doc and 'casing' in doc:
+            completion.append(idx)
+
+    txt_paths_remain_3 = []
+    for idx, path in enumerate(txt_paths_remain_2):
+        if idx not in completion:
+            txt_paths_remain_3.append(path)
+
+    tokenized_corpus_4 = mcp.parallel_corpus_lemm_tokenization(txt_paths_remain_3)
+
+    plats = []
+    for idx, doc in enumerate(tokenized_corpus_4):
+        if 'alum' in doc and 'plat' in doc:
+            plats.append(idx)
+
+    txt_paths_remain_4 = []
+    for idx, path in enumerate(txt_paths_remain_3):
+        if idx not in plats:
+            txt_paths_remain_4.append(path)
+
+    tokenized_corpus_5 = mcp.parallel_corpus_lemm_tokenization(txt_paths_remain_4)
+
+    sundries = []
+    for idx, doc in enumerate(tokenized_corpus_5):
+        if 'sundry' in doc and 'notice' in doc and 'reclamation' in doc:
+            sundries.append(idx)
+
+    txt_paths_remain_5 = []
+    for idx, path in enumerate(txt_paths_remain_4):
+        if idx not in sundries:
+            txt_paths_remain_5.append(path)
+
+    tokenized_corpus_6 = mcp.parallel_corpus_lemm_tokenization(txt_paths_remain_5)
+
+    completed = []
+    for idx, doc in enumerate(tokenized_corpus_6):
+        if 'perforation' in doc and 'treatment' in doc and 'interval' in doc:
+            completed.append(idx)
+
+    txt_paths_remain_6 = []
+    for idx, path in enumerate(txt_paths_remain_5):
+        if idx not in completed:
+            txt_paths_remain_6.append(path)
+
+    tokenized_corpus_7 = mcp.parallel_corpus_lemm_tokenization(txt_paths_remain_6)
+
+    determination = []
+    for idx, doc in enumerate(tokenized_corpus_7):
+        if 'determination' in doc and 'category' in doc:
+            determination.append(idx)
+
+    txt_paths_remain_7 = []
+    for idx, path in enumerate(txt_paths_remain_6):
+        if idx not in determination:
+            txt_paths_remain_7.append(path)
+
+    tokenized_corpus_8 = mcp.parallel_corpus_lemm_tokenization(txt_paths_remain_7)
+
+    bradenhead = []
+    for idx, doc in enumerate(tokenized_corpus_8):
+        if 'bradenhead' in doc and 'sample' in doc:
+            bradenhead.append(idx)
+
+    txt_paths_remain_8 = []
+    for idx, path in enumerate(txt_paths_remain_7):
+        if idx not in bradenhead:
+            txt_paths_remain_8.append(path)
+
+    tokenized_corpus_9 = mcp.parallel_corpus_lemm_tokenization(txt_paths_remain_8)
+
+    abandonment = []
+    for idx, doc in enumerate(tokenized_corpus_9):
+        if 'abandonment' in doc and 'intent' in doc:
+            abandonment.append(idx)
+
+    txt_paths_remain_9 = []
+    for idx, path in enumerate(txt_paths_remain_8):
+        if idx not in abandonment:
+            txt_paths_remain_9.append(path)
+
+
+
     # tokens appearing in less than 15% of documents not to be included
     no_below = int(txt_cnt * 0.15)
 
     # from inspection (LDAvis, topic-token distribution plots), 6 topics separate well the data
-    tokenized_corpus, dictionary, bow_corpus, lda = train_lda(paths=txt_paths, dict_no_below=no_below, cores=4, n_topics=6)
+    tokenized_corpus, dictionary, bow_corpus, lda = train_lda(paths=txt_paths_remain_9, dict_no_below=no_below, cores=4, n_topics=6)
 
     # find index of documents to txt_paths that contribute no tokens to bow_corpus
     file_removal_idx = inspect_bow_corpus(bow_corpus)
@@ -353,147 +494,177 @@ if __name__ == '__main__':
     lda.save('src/LDAvis_choose_n_topics/lda_6.model')
 
     # inspection of the classification
-    top_topics_dict, files_by_topic_defdict = inspect_classification(bow_corpus, lda, txt_paths)
+    top_topics_dict, files_by_topic_defdict = inspect_classification(bow_corpus, lda, txt_paths_remain_9)
+
+    # identify topics with low variance and exclude from further processing
+    plot_topic_token_dist(lda, dictionary)
+
+    # # removing topic 5 documents after visual inspection of low variance
+    # topic_masks = docs_topic_mask(lda, top_topics_dict)
+    # flattened = [val for sublist in topic_masks[:5] for val in sublist]
+    # txt_paths_repro = np.array(txt_paths)[flattened]
+    #
+    # # reprocessing impure categories
+    # # tokens appearing in less than 15% of documents not to be included
+    # no_below = int(txt_cnt * 0.15)
+    #
+    # # from inspection (LDAvis, topic-token distribution plots), 6 topics separate well the data
+    # tokenized_corpus_repro, dictionary_repro, bow_corpus_repro, lda_repro = train_lda(paths=txt_paths_repro, dict_no_below=no_below, cores=4, n_topics=6)
+    #
+    # # saving corpus, dictionary, model for LDAvis inspection (use a jupyter-notebook)
+    # corpora.MmCorpus.serialize('src/LDAvis_reprocess/bow_corpus.mm', bow_corpus_repro)
+    # dictionary_repro.save('src/LDAvis_reprocess/dict.dict')
+    # lda_repro.save('src/LDAvis_reprocess/lda.model')
+    #
+    # # find index of documents to txt_paths that contribute no tokens to bow_corpus
+    # file_removal_idx = inspect_bow_corpus(bow_corpus_repro)
+    #
+    # # inspection of the classification
+    # top_topics_dict_repro, files_by_topic_defdict_repro = inspect_classification(bow_corpus_repro, lda_repro, txt_paths_repro)
+    #
+    # # identify topics with low variance and exclude from further processing
+    # plot_topic_token_dist(lda_repro, dictionary_repro)
+
 
     # lda.show_topics(-1, formatted=False)
 
     # display_docs(files_by_topic_defdict, 0, high=200)
 
 
-    # ******
-    # PCA Analysis
-    df_tokens_topic = topic_token_dist(model=lda, dictionary=dictionary, num_words=len(dictionary.values()))
-    x = []
-    for t in range(lda.num_topics):
-        x.append(df_tokens_topic[df_tokens_topic['topic'] == t]['token_prob'])
-    X = np.array(x)
-
-    Xscaled = preprocessing.scale(X)
-    pca_scaled = PCA(n_components=2).fit_transform(Xscaled)
-
-def plot_pca(pca):
-    plt.plot(pca[0,0],pca[0,1], 'o', markersize=10, color='b', alpha=0.5, label='topic0')
-    plt.plot(pca[1,0],pca[1,1], '^', markersize=10, color='g', alpha=0.5, label='topic1')
-    plt.plot(pca[2,0],pca[2,1], 'p', markersize=10, color='r', alpha=0.5, label='topic2')
-    plt.plot(pca[3,0],pca[3,1], 'D', markersize=10, color='c', alpha=0.5, label='topic3')
-    plt.plot(pca[4,0],pca[4,1], 'h', markersize=10, color='m', alpha=0.5, label='topic4')
-    plt.plot(pca[5,0],pca[5,1], 's', markersize=10, color='k', alpha=0.5, label='topic5')
-    # plt.plot(pca[6,0],pca[6,1], '*', markersize=7, color='y', alpha=0.5, label='topic6')
-    plt.legend()
 
 
+#     # ******
+#     # PCA Analysis
+#     df_tokens_topic = topic_token_dist(model=lda, dictionary=dictionary, num_words=len(dictionary.values()))
+#     x = []
+#     for t in range(lda.num_topics):
+#         x.append(df_tokens_topic[df_tokens_topic['topic'] == t]['token_prob'])
+#     X = np.array(x)
+#
+#     Xscaled = preprocessing.scale(X)
+#     pca_scaled = PCA(n_components=2).fit_transform(Xscaled)
+#
+# def plot_pca(pca):
+#     plt.plot(pca[0,0],pca[0,1], 'o', markersize=10, color='b', alpha=0.5, label='topic0')
+#     plt.plot(pca[1,0],pca[1,1], '^', markersize=10, color='g', alpha=0.5, label='topic1')
+#     plt.plot(pca[2,0],pca[2,1], 'p', markersize=10, color='r', alpha=0.5, label='topic2')
+#     plt.plot(pca[3,0],pca[3,1], 'D', markersize=10, color='c', alpha=0.5, label='topic3')
+#     plt.plot(pca[4,0],pca[4,1], 'h', markersize=10, color='m', alpha=0.5, label='topic4')
+#     plt.plot(pca[5,0],pca[5,1], 's', markersize=10, color='k', alpha=0.5, label='topic5')
+#     # plt.plot(pca[6,0],pca[6,1], '*', markersize=7, color='y', alpha=0.5, label='topic6')
+#     plt.legend()
+#     # ******
 
 
-    # ******
-    # calculate mean token_id per topic to identify mean of known topic labels, such as permits
-    token_dist_df = topic_token_dist(model=lda, dictionary=dictionary, num_words=10)
-    m = []
-    for t in range(lda.num_topics):
-        m.append(np.mean(token_dist_df[token_dist_df['topic'] == t]['token_id']))
-
-    df_top_var = pd.DataFrame({'topic': x, 'token_prob_var': y, 'top10_token_id_mean': m})
-
-    # use token_prob_var < 0.00015 to find most consistent topics in terms of document content. Use topic visual inspection to connect  top10_token_id_mean with topic label.
-    df_top_var['topic_label'] = ''
-    df_top_var.loc[0, 'topic_label'] = 'completions'
-    df_top_var.loc[5, 'topic_label'] = 'permits'
-
-
-
-
-    # topic_id distribution per topic
-    b = sns.boxplot(data=token_dist_df, y='topic', x='token_id', orient='h')
-    b.axes.set_title('Distribution of Token ID per Topic',fontsize=16)
-    b.set_xlabel('Token ID',fontsize=14)
-    b.set_ylabel('Topic',fontsize=14)
-
-    # if topic variance is under 0.00005, set document paths as classified and exclude from further processing
-    classified_topic = []
-    for t in range(lda.num_topics):
-        if y[t] < 0.00005:
-            classified_topic.append(t)
-
-    topic_masks = docs_topic_mask(model=lda, top_topics_dict=top_topics_dict)
-
-    classified_txt_paths = defaultdict(list)
-    for t in classified_topic:
-        classified_txt_paths[t].append(np.array(txt_paths)[topic_masks[t]])
-
-    to_ignore_txt_paths = []
-    for t in classified_topic:
-        to_ignore_txt_paths = list(chain.from_iterable([x[0] for x in classified_txt_paths.values()]))
-
-    top_num = []
-    path_lst = []
-    for t, v in classified_txt_paths.items():
-        top_num.append(np.repeat(t, len(v[0])))
-        path_lst.append(v[0])
-
-    topic_lst = [item for sublist in top_num for item in sublist]
-    path_lst = [item for sublist in path_lst for item in sublist]
-    api_lst = [path.rsplit('/', 1)[-1].rsplit('-', 3)[0] for path in path_lst]
-
-    df_classified = pd.DataFrame({'topic_num': topic_lst, 'txt_path': path_lst, 'api_label': api_lst})
-
-    df_classified_dummies = pd.concat([df_classified, pd.get_dummies(df_classified['topic_num'])], axis=1)
-
-    df_classified_dummies.to_csv('data/wells_classified.csv')
-
-    # API numbers for all files in train set
-def load_cogcc_well_info(cogcc_path):
-    '''
-    INPUT: path to cogcc .dbf file containing well info data
-    OUPUT: data frame of cogcc well info data
-    TASK: uses dbfread package to read .dbf and obtain a data frame
-    '''
-    dbf = dbfread.DBF(cogcc_path)
-    frame = pd.DataFrame(iter(dbf))
-    frame.to_csv('data/cogcc_well_info.csv')
-
-    return frame
-
-
-def cogcc_well_info(txt_paths):
-    path_api = []
-    for path in txt_paths:
-        path_api.append((path, path.rsplit('/', 1)[-1].rsplit('-', 3)[0]))
-
-    unique_api = set(np.array(path_api)[:,1])
-
-    # COGCC well location and information data by API number
-    dbf = dbfread.DBF('/Users/jpc/Documents/data_science_inmersive/document_image_classification/data/WELLS_SHP/Wells.dbf')
-    frame = pd.DataFrame(iter(dbf))
-    frame.to_csv('data/cogcc_well_info.csv')
-
-    processed_wells = frame[frame['API_Label'].isin(unique_api)]
-
-    wells_utms_latlon = processed_wells.loc[:, ['API_Label', 'Utm_X', 'Utm_Y', 'Max_MD', 'Max_TVD', 'Operator', 'Spud_Date', 'Well_Title']]
-
-    lat_long = []
-    for i in range(wells_utms.shape[0]):
-        lat_long.append(utm.to_latlon(wells_utms.iloc[i,1], wells_utms_latlon.iloc[i,2], 13, 'S'))
-    wells_utms_latlon['latitude'], wells_utms_latlon['longitude'] = zip(*lat_long)
-
-    lower_cols = []
-    for col in wells_utms_latlon.columns:
-        lower_cols.append(col.lower())
-    wells_utms_latlon.columns = lower_cols
-
-    wells_classified = wells_utms_latlon.merge(df_classified_dummies, on='api_label')
-
-    def label_topic(row):
-        if row['topic_num'] == 5 :
-            return 'permit'
-        return 'no classified documents'
-
-    wells_classified['topic_name'] = wells_classified.apply(lambda row: label_topic(row), axis=1)
-
-    wells_aggregated = wells_classified.groupby(['api_label', 'utm_x', 'utm_y', 'max_md', 'max_tvd', 'operator', 'well_title', 'latitude', 'longitude', 'topic_num', 'topic_name']).sum().reset_index()
-
-    wells_aggregated = pd.merge(wells_aggregated, wells_utms_latlon.loc[:, ['api_label', 'spud_date']], how='inner', on='api_label')
-
-    wells_aggregated.to_csv('data/wells_aggregated.csv')
-    # ******
+#     # calculate mean token_id per topic to identify mean of known topic labels, such as permits
+#     token_dist_df = topic_token_dist(model=lda, dictionary=dictionary, num_words=10)
+#     m = []
+#     for t in range(lda.num_topics):
+#         m.append(np.mean(token_dist_df[token_dist_df['topic'] == t]['token_id']))
+#
+#     df_top_var = pd.DataFrame({'topic': x, 'token_prob_var': y, 'top10_token_id_mean': m})
+#
+#     # use token_prob_var < 0.00015 to find most consistent topics in terms of document content. Use topic visual inspection to connect  top10_token_id_mean with topic label.
+#     df_top_var['topic_label'] = ''
+#     df_top_var.loc[0, 'topic_label'] = 'completions'
+#     df_top_var.loc[5, 'topic_label'] = 'permits'
+#
+#
+#
+#
+#     # topic_id distribution per topic
+#     b = sns.boxplot(data=token_dist_df, y='topic', x='token_id', orient='h')
+#     b.axes.set_title('Distribution of Token ID per Topic',fontsize=16)
+#     b.set_xlabel('Token ID',fontsize=14)
+#     b.set_ylabel('Topic',fontsize=14)
+#
+#     # if topic variance is under 0.00005, set document paths as classified and exclude from further processing
+#     classified_topic = []
+#     for t in range(lda.num_topics):
+#         if y[t] < 0.00005:
+#             classified_topic.append(t)
+#
+#     topic_masks = docs_topic_mask(model=lda, top_topics_dict=top_topics_dict)
+#
+#     classified_txt_paths = defaultdict(list)
+#     for t in classified_topic:
+#         classified_txt_paths[t].append(np.array(txt_paths)[topic_masks[t]])
+#
+#     to_ignore_txt_paths = []
+#     for t in classified_topic:
+#         to_ignore_txt_paths = list(chain.from_iterable([x[0] for x in classified_txt_paths.values()]))
+#
+#     top_num = []
+#     path_lst = []
+#     for t, v in classified_txt_paths.items():
+#         top_num.append(np.repeat(t, len(v[0])))
+#         path_lst.append(v[0])
+#
+#     topic_lst = [item for sublist in top_num for item in sublist]
+#     path_lst = [item for sublist in path_lst for item in sublist]
+#     api_lst = [path.rsplit('/', 1)[-1].rsplit('-', 3)[0] for path in path_lst]
+#
+#     df_classified = pd.DataFrame({'topic_num': topic_lst, 'txt_path': path_lst, 'api_label': api_lst})
+#
+#     df_classified_dummies = pd.concat([df_classified, pd.get_dummies(df_classified['topic_num'])], axis=1)
+#
+#     df_classified_dummies.to_csv('data/wells_classified.csv')
+#
+#     # API numbers for all files in train set
+# def load_cogcc_well_info(cogcc_path):
+#     '''
+#     INPUT: path to cogcc .dbf file containing well info data
+#     OUPUT: data frame of cogcc well info data
+#     TASK: uses dbfread package to read .dbf and obtain a data frame
+#     '''
+#     dbf = dbfread.DBF(cogcc_path)
+#     frame = pd.DataFrame(iter(dbf))
+#     frame.to_csv('data/cogcc_well_info.csv')
+#
+#     return frame
+#
+#
+# def cogcc_well_info(txt_paths):
+#     path_api = []
+#     for path in txt_paths:
+#         path_api.append((path, path.rsplit('/', 1)[-1].rsplit('-', 3)[0]))
+#
+#     unique_api = set(np.array(path_api)[:,1])
+#
+#     # COGCC well location and information data by API number
+#     dbf = dbfread.DBF('/Users/jpc/Documents/data_science_inmersive/document_image_classification/data/WELLS_SHP/Wells.dbf')
+#     frame = pd.DataFrame(iter(dbf))
+#     frame.to_csv('data/cogcc_well_info.csv')
+#
+#     processed_wells = frame[frame['API_Label'].isin(unique_api)]
+#
+#     wells_utms_latlon = processed_wells.loc[:, ['API_Label', 'Utm_X', 'Utm_Y', 'Max_MD', 'Max_TVD', 'Operator', 'Spud_Date', 'Well_Title']]
+#
+#     lat_long = []
+#     for i in range(wells_utms.shape[0]):
+#         lat_long.append(utm.to_latlon(wells_utms.iloc[i,1], wells_utms_latlon.iloc[i,2], 13, 'S'))
+#     wells_utms_latlon['latitude'], wells_utms_latlon['longitude'] = zip(*lat_long)
+#
+#     lower_cols = []
+#     for col in wells_utms_latlon.columns:
+#         lower_cols.append(col.lower())
+#     wells_utms_latlon.columns = lower_cols
+#
+#     wells_classified = wells_utms_latlon.merge(df_classified_dummies, on='api_label')
+#
+#     def label_topic(row):
+#         if row['topic_num'] == 5 :
+#             return 'permit'
+#         return 'no classified documents'
+#
+#     wells_classified['topic_name'] = wells_classified.apply(lambda row: label_topic(row), axis=1)
+#
+#     wells_aggregated = wells_classified.groupby(['api_label', 'utm_x', 'utm_y', 'max_md', 'max_tvd', 'operator', 'well_title', 'latitude', 'longitude', 'topic_num', 'topic_name']).sum().reset_index()
+#
+#     wells_aggregated = pd.merge(wells_aggregated, wells_utms_latlon.loc[:, ['api_label', 'spud_date']], how='inner', on='api_label')
+#
+#     wells_aggregated.to_csv('data/wells_aggregated.csv')
+#     # ******
 
 
 

@@ -37,7 +37,8 @@ def lemm_tokenize_doc(doc, stop):
     spacy_doc = nlp(clean_doc.decode('utf-8'))
 
     # lemmatize, only keep nouns, transform to ascii as will no longer use spaCy
-    noun_tokens = [unidecode(token.lemma_) for token in spacy_doc if token.pos_ == 'NOUN']
+    # noun_tokens = [unidecode(token.lemma_) for token in spacy_doc if token.pos_ == 'NOUN']
+    noun_tokens = [unidecode(token.lemma_) for token in spacy_doc]
 
     # keep tokens longer than 2 characters
     long_tokens = [token for token in noun_tokens if len(token) >= 3]
@@ -46,17 +47,9 @@ def lemm_tokenize_doc(doc, stop):
     triples = [''.join(triple) for triple in zip(ascii_lowercase, ascii_lowercase, ascii_lowercase)]
     good_tokens = [token for token in long_tokens if not [triple for triple in triples if triple in token]]
 
-    stop_specific = []
-    if stop == 'general':
-        # remove tokens that are present in stoplist
-        stop_specific = ['wattenberg', 'yes', 'acre', 'number', 'mum', 'nwse', 'swne', 'lease', 'rule', 'drilling', 'permit', 'application', 'form', 'felfwl', 'fnlfsl', 'fnl', 'fsl', 'page', 'file', 'date', 'state', 'surface']
-
-    if stop == 'survey':
-        stop_specific = []
-
     NLTKstopwords = sw.words('english')
 
-    stoplist = STOPWORDS.union(NLTKstopwords).union(stop_specific)
+    stoplist = STOPWORDS.union(NLTKstopwords).union(stop)
 
     final_tokens = [token for token in good_tokens if token not in stoplist]
 
@@ -72,7 +65,7 @@ def process_corpus(corpus_chunk, stop):
     return [lemm_tokenize_doc(doc, stop) for doc in corpus_chunk]
 
 
-def parallel_corpus_lemm_tokenization(txt_paths, stop='general'):
+def parallel_corpus_lemm_tokenization(txt_paths, stop):
     '''
     INPUT: paths to OCRd .tif files that are in .txt format.
     OUTPUT: (1) lemmatized and tokenized corpus
