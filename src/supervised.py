@@ -1,4 +1,5 @@
 import os
+import shutil
 import numpy as np
 
 from time import time
@@ -17,7 +18,7 @@ def lower_filename(directory):
     '''
     INPUT: main directory where data resides
     OUTPUT: None
-    TASK: removes white space from file names since shell to open files in other functions don't recognize white space.
+    TASK: lowers all file names to have consistent labels
     '''
     for path, _, files in os.walk(directory):
         for f in files:
@@ -25,6 +26,11 @@ def lower_filename(directory):
 
 
 def extract_label(directory):
+    '''
+    INPUT: path to files
+    OUTPUT: list of labels
+    TASK: extract label from file name
+    '''
     labels = []
     for path, _, files in os.walk(directory):
         for f in files:
@@ -35,8 +41,11 @@ def extract_label(directory):
 
 
 def extract_data(directory):
+    '''
+    TASK: creates list of documents from OCRd images to be used as input data for model.
+    '''
     data = []
-    for path, _, files in os.walk(file_path):
+    for path, _, files in os.walk(directory):
         for f in files:
             if f[-3:] == 'txt':
                 with open(os.path.join(path, f)) as t:
@@ -45,8 +54,24 @@ def extract_data(directory):
     return data
 
 
-# Utility function to report best scores
+def output_classification(origin, destination):
+    '''
+    TASK: send labeled documents to supervised_results folder
+    '''
+    for path, _, files in os.walk(origin):
+        for idx, f in enumerate(files):
+            if f[-3:] == 'tif':
+                old = os.path.join(path, f)
+                new_f = f.rsplit('-', 2)
+                new_f[-2] = untrained_pred[idx]
+                new_f = '-'.join(new_f)
+                shutil.copyfile(os.path.join(path, f), os.path.join(destination, new_f))
+
+
 def report(results, n_top=3):
+    '''
+    TASK: utility function to report best scores from GridSearchCV. Code modified from Sklearn.
+    '''
     for i in range(1, n_top + 1):
         candidates = np.flatnonzero(results['rank_test_score'] == i)
         for candidate in candidates:
@@ -57,14 +82,13 @@ def report(results, n_top=3):
 
 
 if __name__ == '__main__':
-    file_path = 'data/supervised'
-    # lower_filename(file_path)
+    train_path = 'data/supervised'
+    # lower_filename(train_path)
 
-    labels = extract_label(file_path)
+    labels = extract_label(train_path)
+    data = extract_data(train_path)
 
-    data_tokenized = extract_data(file_path)
-
-    data_train, data_test, y_train, y_test = train_test_split(data_tokenized, labels, test_size=0.33, random_state=42)
+    data_train, data_test, y_train, y_test = train_test_split(data, labels, test_size=0.33, stratify=labels, random_state=42)
 
     vectorizer = TfidfVectorizer(sublinear_tf=True, max_df=0.5,
                                  stop_words='english')
@@ -98,3 +122,13 @@ if __name__ == '__main__':
 
     score = accuracy_score(y_test, pred)
     print 'accuracy: {}'.format(score)
+
+    # use trained model to predict on unseen documents
+    to_pred_path = 'data/Wells'
+    data_to_pred = extract_data(to_pred_path)
+    X_to_pred = vectorizer.transform(data_to_pred)
+
+    untrained_pred = clf.predict(X_to_pred)
+    destination = 'data/supervised_results'
+
+    # output_classification(to_pred_path, destination)
