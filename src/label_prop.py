@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from scipy import stats
 
 from sklearn import datasets
-from sklearn.semi_supervised import label_propagation
+from sklearn.semi_supervised import LabelPropagation, LabelSpreading
 from sklearn.metrics import classification_report, confusion_matrix
 
 
@@ -43,7 +43,7 @@ def lower_filename(directory):
             os.rename(os.path.join(path, f), os.path.join(path, f.lower()))
 
 
-file_path = 'data/supervised'
+file_path = 'data/train_supervised'
 lower_filename(file_path)
 labels = np.array(extract_label(file_path))
 data = extract_data(file_path)
@@ -59,13 +59,13 @@ rng = np.random.RandomState(0)
 indices = np.arange(len(data))
 rng.shuffle(indices)
 
-X = data_vect[indices[:250]].toarray()
+X = data_vect[indices[:250]].todense()
 le = LabelEncoder()
 y = le.fit_transform(labels[indices[:250]])
 # images = digits.images[indices[:330]]
 
 n_total_samples = len(y)
-n_labeled_points = 30
+n_labeled_points = 100
 
 unlabeled_indices = np.arange(n_total_samples)[n_labeled_points:]
 # f = plt.figure()
@@ -74,7 +74,8 @@ for i in range(5):
     y_train = np.copy(y)
     y_train[unlabeled_indices] = -1
 
-    lp_model = label_propagation.LabelSpreading(kernel='knn', n_neighbors=7, max_iter=30, n_jobs=-1)
+    lp_model = LabelSpreading(kernel='rbf', gamma=100, max_iter=50, n_jobs=-1)
+    # lp_model = LabelSpreading(kernel='knn', n_neighbors=5, max_iter=30, n_jobs=-1)
     lp_model.fit(X, y_train)
 
     predicted_labels = lp_model.transduction_[unlabeled_indices]
